@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrUnknownModify = errors.New("unknown modify type")
+	ErrNotFound      = errors.New("key doesn't exist")
 )
 
 const (
@@ -54,6 +55,14 @@ func (e *Engines) WriteRaft(m Modify) error {
 	default:
 		return ErrUnknownModify
 	}
+}
+
+func (e *Engines) ReadKV(key []byte) ([]byte, error) {
+	val, err := e.kv.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	return val, err
 }
 
 func (e *Engines) Close() error {
