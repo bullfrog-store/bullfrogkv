@@ -31,12 +31,12 @@ func (k *kvEngine) putKVHandle(c *gin.Context) {
 	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"err": "write fail",
+			"error": writeFail,
 		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"msg": "write success",
+		"message": writeSuccess,
 	})
 }
 
@@ -46,19 +46,23 @@ func (k *kvEngine) getKVHandle(c *gin.Context) {
 	val, err := k.kve.ReadKV(key)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
-			c.JSON(http.StatusBadRequest, gin.H{"msg": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
 			return
 		} else {
 			log.Println("get error:", err)
-			c.JSON(http.StatusBadRequest, gin.H{"err": "get value fail"})
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": getFail,
+			})
 			return
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"msg":  "get success",
-		"key":  keyI,
-		"data": string(val),
+		"message": getSuccess,
+		"key":     keyI,
+		"data":    string(val),
 	})
 }
 
@@ -73,10 +77,14 @@ func (k *kvEngine) delKVHandle(c *gin.Context) {
 
 	if err != nil {
 		log.Println("del error:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"msg": "del fail"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": deleteFail,
+		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"msg": "del success"})
+	c.JSON(http.StatusOK, gin.H{
+		"message": deleteSuccess,
+	})
 }
 
 func getBytes(data string) []byte {
