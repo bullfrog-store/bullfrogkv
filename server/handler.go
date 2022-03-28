@@ -56,7 +56,7 @@ func (k *kvEngine) getKVHandle(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"mgs":  "get success",
+		"msg":  "get success",
 		"key":  keyI,
 		"data": string(val),
 	})
