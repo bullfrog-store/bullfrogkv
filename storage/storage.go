@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"github.com/cockroachdb/pebble"
 	"os"
 )
@@ -30,6 +31,7 @@ func (s *storage) Set(key, val []byte, sync bool) error {
 
 func (s *storage) Get(key []byte) ([]byte, error) {
 	val, closer, err := s.db.Get(key)
+	fmt.Println("storage:", string(val))
 	if err != nil {
 		return nil, err
 	}

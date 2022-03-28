@@ -26,7 +26,7 @@ func (k *kvEngine) putKVHandle(c *gin.Context) {
 		Data: storage.Put{
 			Key:   key,
 			Value: val,
-			Sync:  false,
+			Sync:  true,
 		},
 	})
 	if err != nil {

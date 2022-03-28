@@ -5,7 +5,6 @@ import (
 )
 
 func main() {
-
 	kvPath := flag.String("k", "kv", "comma kv storage path")
 	raftPath := flag.String("r", "raft", "comma raft storage path")
 	addr := flag.String("a", ":8080", "comma port")
