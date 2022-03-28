@@ -8,11 +8,12 @@ import (
 
 var (
 	ErrUnknownModify = errors.New("unknown modify type")
+	ErrNotFound      = errors.New("key doesn't exist")
 )
 
 const (
-	KvPath   = "/kv"
-	RaftPath = "/raft"
+	KvPath   = "kv"
+	RaftPath = "raft"
 )
 
 type Engines struct {
@@ -54,6 +55,19 @@ func (e *Engines) WriteRaft(m Modify) error {
 	default:
 		return ErrUnknownModify
 	}
+}
+
+func (e *Engines) GetKV(key []byte) ([]byte, error) {
+	val, err := e.kv.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	return val, err
+}
+
+func (e *Engines) DelKV(key []byte, sync bool) error {
+	err := e.kv.Delete(key, sync)
+	return err
 }
 
 func (e *Engines) Close() error {
