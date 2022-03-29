@@ -65,6 +65,14 @@ func (e *Engines) ReadKV(key []byte) ([]byte, error) {
 	return val, err
 }
 
+func (e *Engines) ReadRaft(key []byte) ([]byte, error) {
+	val, err := e.raft.Get(key)
+	if errors.Is(err, pebble.ErrNotFound) {
+		return nil, ErrNotFound
+	}
+	return val, err
+}
+
 func (e *Engines) Close() error {
 	if err := e.kv.Close(); err != nil {
 		return err
