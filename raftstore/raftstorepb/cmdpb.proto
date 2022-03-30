@@ -1,0 +1,86 @@
+syntax = "proto3";
+package raftstorepb;
+
+enum CmdType {
+  Get = 0;
+  Put = 1;
+  Delete = 2;
+}
+
+message GetRequest {
+  bytes key = 1;
+}
+
+message GetResponse {
+  bytes value = 1;
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message PutResponse {}
+
+message DeleteRequest {
+  bytes key = 1;
+}
+
+message DeleteResponse {}
+
+enum AdminCmdType {
+  CompactLog = 0;
+}
+
+message CompactLogRequest {
+  uint64 compact_index = 1;
+  uint64 compact_term = 2;
+}
+
+message CompactLogResponse {}
+
+message RaftRequestHeader {
+  uint64 term = 1;
+}
+
+message RaftResponseHeader {
+  uint64 current_term = 1;
+}
+
+message Request {
+  CmdType cmd_type = 1;
+  GetRequest get = 2;
+  PutRequest put = 3;
+  DeleteRequest delete = 4;
+}
+
+message Response {
+  CmdType cmd_type = 1;
+  GetResponse get = 2;
+  PutResponse put = 3;
+  DeleteResponse delete = 4;
+}
+
+message AdminRequest {
+  AdminCmdType cmd_type = 1;
+  CompactLogRequest compact_log = 2;
+}
+
+message AdminResponse {
+  AdminCmdType cmd_type = 1;
+  CompactLogResponse compact_log = 2;
+}
+
+message RaftCmdRequest {
+  RaftRequestHeader header = 1;
+  // We can't enclose normal requests and administrator request
+  // at same time.
+  Request request = 2;
+  AdminRequest admin_request = 3;
+}
+
+message RaftCmdResponse {
+  RaftResponseHeader header = 1;
+  Response response = 2;
+  AdminResponse admin_response = 3;
+}
