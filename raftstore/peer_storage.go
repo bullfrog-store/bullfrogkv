@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"bullfrogkv/storage"
+	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
@@ -43,4 +44,8 @@ func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
 func (ps *peerStorage) AppliedIndex() uint64 {
 	// TODO: last applied index
 	return 0
+}
+
+func (ps *peerStorage) saveReadyState(rd raft.Ready) {
+	// TODO: save raft hard state
 }

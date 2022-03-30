@@ -2,6 +2,8 @@ package raftstore
 
 import (
 	"bullfrogkv/raftstore/raftstorepb"
+	"bullfrogkv/storage"
+	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"time"
@@ -29,7 +31,7 @@ func newPeer(id uint64, path string) *peer {
 		raftMsgReceiver:   make(chan raftpb.Message, 256),
 		compactionTimeout: 100,
 	}
-	pr.router = newRouter(pr.raftMsgReceiver)
+	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)
 
 	c := &raft.Config{
 		ID:                        id,
@@ -47,12 +49,16 @@ func newPeer(id uint64, path string) *peer {
 	}
 	pr.raftGroup = raft.StartNode(c, rpeers)
 	go pr.run()
+	go pr.handleRaftMsgs()
 	return pr
 }
 
 func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
-	// TODO: handle propose
-	return pr.raftGroup.Propose(nil, nil)
+	data, err := proto.Marshal(cmd)
+	if err != nil {
+		return err
+	}
+	return pr.raftGroup.Propose(nil, data)
 }
 
 func (pr *peer) run() {
@@ -61,10 +67,25 @@ func (pr *peer) run() {
 		select {
 		case <-ticker.C:
 			pr.tick()
-		case msg := <-pr.raftMsgReceiver:
-			pr.raftGroup.Step(nil, msg)
 		case rd := <-pr.raftGroup.Ready():
 			pr.handleReady(rd)
+		}
+	}
+}
+
+func (pr *peer) handleRaftMsgs() {
+	for {
+		msgs := make([]raftpb.Message, 0)
+		select {
+		case msg := <-pr.raftMsgReceiver:
+			msgs = append(msgs, msg)
+		}
+		pending := len(pr.raftMsgReceiver)
+		for i := 0; i < pending; i++ {
+			msgs = append(msgs, <-pr.raftMsgReceiver)
+		}
+		for _, msg := range msgs {
+			pr.raftGroup.Step(nil, msg)
 		}
 	}
 }
@@ -78,14 +99,44 @@ func (pr *peer) tickCompact() {
 	pr.compactionElapse++
 	if pr.compactionElapse >= pr.compactionTimeout {
 		pr.compactionElapse = 0
-		// TODO: try to compact log
+		// TODO(qyl): try to compact log
 		// propose admin request
 	}
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
-	// TODO: handle ready
+	pr.ps.saveReadyState(rd)
+	pr.router.sendRaftMessage(rd.Messages)
+	for _, ent := range rd.CommittedEntries {
+		pr.process(ent)
+	}
 	pr.raftGroup.Advance()
+}
+
+func (pr *peer) process(ent raftpb.Entry) {
+	cmd := &raftstorepb.RaftCmdRequest{}
+	if err := proto.Unmarshal(ent.Data, cmd); err != nil {
+		panic(err)
+	}
+	if cmd.Request != nil {
+		// process common request
+		pr.processRequest(cmd.Request)
+	} else if cmd.AdminRequest != nil {
+		// TODO(qyl): process admin request
+	}
+}
+
+func (pr *peer) processRequest(cmd *raftstorepb.Request) {
+	switch cmd.CmdType {
+	case raftstorepb.CmdType_Put:
+		modify := storage.PutData(cmd.Put.Key, cmd.Put.Value, true)
+		pr.ps.engine.WriteKV(modify)
+	case raftstorepb.CmdType_Delete:
+		modify := storage.DeleteData(cmd.Delete.Key, true)
+		pr.ps.engine.WriteKV(modify)
+	case raftstorepb.CmdType_Get:
+		// TODO(qyl): use read index
+	}
 }
 
 func (pr *peer) term() uint64 {
