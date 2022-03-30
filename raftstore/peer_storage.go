@@ -5,14 +5,15 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-// peerStorage implements the interfaces of ETCD
-// raft.Node for storing raft persistent states.
 type peerStorage struct {
-	engines *storage.Engines
+	engine *storage.Engines
 }
 
-func newPeerStorage() *peerStorage {
-	return nil
+func newPeerStorage(path string) *peerStorage {
+	ps := &peerStorage{
+		engine: storage.NewEngines(path+storage.KvPath, path+storage.RaftPath),
+	}
+	return ps
 }
 
 func (ps *peerStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
@@ -37,4 +38,9 @@ func (ps *peerStorage) FirstIndex() (uint64, error) {
 
 func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
 	panic("implement me")
+}
+
+func (ps *peerStorage) AppliedIndex() uint64 {
+	// TODO: last applied index
+	return 0
 }

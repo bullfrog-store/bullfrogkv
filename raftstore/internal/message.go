@@ -1,10 +1,17 @@
 package internal
 
-type MsgRaftCmd struct {
-	// TODO: Request *RaftCmdRequest
-	Callback *Callback
+import "bullfrogkv/raftstore/raftstorepb"
+
+func NewRaftCmdRequest(header *raftstorepb.RaftRequestHeader, request *raftstorepb.Request) *raftstorepb.RaftCmdRequest {
+	return &raftstorepb.RaftCmdRequest{
+		Header:  header,
+		Request: request,
+	}
 }
 
-func NewMsgRaftCmd() *MsgRaftCmd {
-	return nil
+func NewRaftAdminCmdRequest(header *raftstorepb.RaftRequestHeader, request *raftstorepb.AdminRequest) *raftstorepb.RaftCmdRequest {
+	return &raftstorepb.RaftCmdRequest{
+		Header:       header,
+		AdminRequest: request,
+	}
 }

@@ -1,29 +1,11 @@
 package raftstore
 
 import (
-	"bullfrogkv/raftstore/internal"
+	"bullfrogkv/raftstore/raftstorepb"
 	"go.etcd.io/etcd/raft/v3"
+	"go.etcd.io/etcd/raft/v3/raftpb"
 	"time"
 )
-
-const (
-	defaultCompactionTimeout = 200
-)
-
-var (
-	// peerMap is temporary peer id to address map.
-	peerMap = map[uint64]string{
-		1: "127.0.0.1:8080",
-		2: "127.0.0.1:8081",
-		3: "127.0.0.1:8082",
-	}
-)
-
-type proposal struct {
-	index uint64
-	term  uint64
-	cb    *internal.Callback
-}
 
 type peer struct {
 	id        uint64
@@ -31,25 +13,30 @@ type peer struct {
 	ps        *peerStorage
 	router    *router
 
-	proposals []*proposal
+	raftMsgReceiver chan raftpb.Message
 
 	compactionElapse  int
 	compactionTimeout int
+
+	lastCompactedIdx uint64
 }
 
-func newPeer(id uint64) *peer {
+func newPeer(id uint64, path string) *peer {
+	// TODO: router init
 	pr := &peer{
 		id:                id,
-		ps:                newPeerStorage(),
-		compactionTimeout: defaultCompactionTimeout,
+		ps:                newPeerStorage(path),
+		raftMsgReceiver:   make(chan raftpb.Message, 256),
+		compactionTimeout: 100,
 	}
-	// TODO: start raft
+	pr.router = newRouter(pr.raftMsgReceiver)
+
 	c := &raft.Config{
-		ID:                        id, // TODO: peer id
+		ID:                        id,
 		ElectionTick:              10,
 		HeartbeatTick:             1,
 		Storage:                   pr.ps,
-		Applied:                   0, // TODO: in kv state
+		Applied:                   pr.ps.AppliedIndex(),
 		MaxSizePerMsg:             1024 * 1024,
 		MaxUncommittedEntriesSize: 1 << 30,
 		MaxInflightMsgs:           256,
@@ -63,7 +50,7 @@ func newPeer(id uint64) *peer {
 	return pr
 }
 
-func (pr *peer) propose(cmd *internal.MsgRaftCmd) error {
+func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
 	// TODO: handle propose
 	return pr.raftGroup.Propose(nil, nil)
 }
@@ -74,6 +61,8 @@ func (pr *peer) run() {
 		select {
 		case <-ticker.C:
 			pr.tick()
+		case msg := <-pr.raftMsgReceiver:
+			pr.raftGroup.Step(nil, msg)
 		case rd := <-pr.raftGroup.Ready():
 			pr.handleReady(rd)
 		}
@@ -82,13 +71,27 @@ func (pr *peer) run() {
 
 func (pr *peer) tick() {
 	pr.raftGroup.Tick()
+	pr.tickCompact()
+}
+
+func (pr *peer) tickCompact() {
 	pr.compactionElapse++
 	if pr.compactionElapse >= pr.compactionTimeout {
+		pr.compactionElapse = 0
 		// TODO: try to compact log
+		// propose admin request
 	}
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
 	// TODO: handle ready
 	pr.raftGroup.Advance()
+}
+
+func (pr *peer) term() uint64 {
+	return pr.raftGroup.Status().Term
+}
+
+func (pr *peer) isLeader() bool {
+	return pr.raftGroup.Status().Lead == pr.id
 }
