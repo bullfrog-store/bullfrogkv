@@ -1,19 +1,33 @@
 package raftstore
 
 import (
+	"bullfrogkv/raftstore/internal"
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
+	"encoding/binary"
 	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"time"
 )
 
+type readRequest struct {
+	readCtx  []byte
+	callback *internal.Callback
+}
+
+func (rr *readRequest) key() []byte {
+	return rr.readCtx[8:]
+}
+
 type peer struct {
 	id        uint64
 	raftGroup raft.Node
 	ps        *peerStorage
 	router    *router
+
+	readRequestCh chan *readRequest
+	readStateCh   chan raft.ReadState
 
 	raftMsgReceiver chan raftpb.Message
 
@@ -28,6 +42,8 @@ func newPeer(id uint64, path string) *peer {
 	pr := &peer{
 		id:                id,
 		ps:                newPeerStorage(path),
+		readRequestCh:     make(chan *readRequest, 256),
+		readStateCh:       make(chan raft.ReadState, 256),
 		raftMsgReceiver:   make(chan raftpb.Message, 256),
 		compactionTimeout: 100,
 	}
@@ -50,6 +66,7 @@ func newPeer(id uint64, path string) *peer {
 	pr.raftGroup = raft.StartNode(c, rpeers)
 	go pr.run()
 	go pr.handleRaftMsgs()
+	go pr.handleReadState()
 	return pr
 }
 
@@ -106,6 +123,9 @@ func (pr *peer) tickCompact() {
 
 func (pr *peer) handleReady(rd raft.Ready) {
 	pr.ps.saveReadyState(rd)
+	for _, state := range rd.ReadStates {
+		pr.readStateCh <- state
+	}
 	pr.router.sendRaftMessage(rd.Messages)
 	for _, ent := range rd.CommittedEntries {
 		pr.process(ent)
@@ -134,9 +154,68 @@ func (pr *peer) processRequest(cmd *raftstorepb.Request) {
 	case raftstorepb.CmdType_Delete:
 		modify := storage.DeleteData(cmd.Delete.Key, true)
 		pr.ps.engine.WriteKV(modify)
-	case raftstorepb.CmdType_Get:
-		// TODO(qyl): use read index
 	}
+}
+
+func (pr *peer) linearizableRead(key []byte) *internal.Callback {
+	ts := time.Now().UnixNano()
+	readCtx := pr.buildReadCtx(ts, key)
+	cb := internal.NewCallback()
+	rr := &readRequest{
+		readCtx:  readCtx,
+		callback: cb,
+	}
+	pr.readRequestCh <- rr
+	if err := pr.raftGroup.ReadIndex(nil, readCtx); err != nil {
+		panic(err)
+	}
+	return cb
+}
+
+func (pr *peer) buildReadCtx(ts int64, key []byte) []byte {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(ts))
+	return append(buf, key...)
+}
+
+func (pr *peer) handleReadState() {
+	for {
+		select {
+		case state := <-pr.readStateCh:
+			rr := <-pr.readRequestCh
+			if byteEqual(rr.readCtx, state.RequestCtx) {
+				// wait for applied index >= state.Index
+				pr.waitAppliedAdvance(state.Index)
+				value, err := pr.ps.engine.ReadKV(rr.key())
+				if err != nil {
+					if err != storage.ErrNotFound {
+						panic(err)
+					}
+				}
+				resp := &raftstorepb.Response{
+					Get: &raftstorepb.GetResponse{Value: value},
+				}
+				rr.callback.Done(internal.NewRaftCmdResponse(resp))
+			}
+		}
+	}
+}
+
+func (pr *peer) waitAppliedAdvance(index uint64) {
+	applied := pr.ps.AppliedIndex()
+	if applied >= index {
+		return
+	}
+	doneCh := make(chan struct{})
+	go func() {
+		for applied < index {
+			time.Sleep(time.Millisecond)
+			applied = pr.ps.AppliedIndex()
+		}
+		doneCh <- struct{}{}
+	}()
+	<-doneCh
+	close(doneCh)
 }
 
 func (pr *peer) term() uint64 {

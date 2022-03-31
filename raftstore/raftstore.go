@@ -35,23 +35,9 @@ func (rs *RaftStore) Set(key []byte, value []byte) error {
 }
 
 func (rs *RaftStore) Get(key []byte) ([]byte, error) {
-	// TODO: use read index
-	//header := &raftstorepb.RaftRequestHeader{
-	//	Term: rs.pr.term(),
-	//}
-	//req := &raftstorepb.Request{
-	//	CmdType: raftstorepb.CmdType_Get,
-	//	Get: &raftstorepb.GetRequest{
-	//		Key: key,
-	//	},
-	//}
-	//cmd := internal.NewMsgRaftCmd(header, req)
-	//err := rs.pr.propose(cmd)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//return cmd.Callback.WaitResp().GetResponse().Get.GetValue(), nil
-	return nil, nil
+	cb := rs.pr.linearizableRead(key)
+	resp := cb.WaitResp()
+	return resp.GetResponse().Get.Value, nil
 }
 
 func (rs *RaftStore) Delete(key []byte) error {
