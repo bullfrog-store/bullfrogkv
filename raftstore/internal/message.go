@@ -15,3 +15,9 @@ func NewRaftAdminCmdRequest(header *raftstorepb.RaftRequestHeader, request *raft
 		AdminRequest: request,
 	}
 }
+
+func NewRaftCmdResponse(response *raftstorepb.Response) *raftstorepb.RaftCmdResponse {
+	return &raftstorepb.RaftCmdResponse{
+		Response: response,
+	}
+}
