@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+// messagepb.proto define messages between peer
+
+import "go.etcd.io/etcd/raft/v3/raftpb/raft.proto";
+
+package raftstorepb;
+
+service Message {
+  // peer to peer
+  rpc SendRaftMessage(stream RaftMessage) returns (Empty) {}
+}
+
+message RaftMessage {
+  raftpb.Message message = 1;
+  uint64 from_peer = 2;
+  uint64 to_peer = 3;
+}
+
+message Empty {}
