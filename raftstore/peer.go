@@ -38,13 +38,12 @@ type peer struct {
 }
 
 func newPeer(id uint64, path string) *peer {
-	// TODO: router init
 	pr := &peer{
 		id:                id,
 		ps:                newPeerStorage(path),
-		readRequestCh:     make(chan *readRequest, 256),
-		readStateCh:       make(chan raft.ReadState, 256),
-		raftMsgReceiver:   make(chan raftpb.Message, 256),
+		readRequestCh:     make(chan *readRequest, 1024),
+		readStateCh:       make(chan raft.ReadState, 1024),
+		raftMsgReceiver:   make(chan raftpb.Message, 1024),
 		compactionTimeout: 100,
 	}
 	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)

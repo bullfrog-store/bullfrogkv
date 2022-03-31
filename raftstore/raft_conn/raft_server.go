@@ -10,7 +10,7 @@ type RaftServer struct {
 	Msgs chan<- raftpb.Message
 }
 
-func NewPeerServer(sender chan<- raftpb.Message) *RaftServer {
+func NewRaftServer(sender chan<- raftpb.Message) *RaftServer {
 	return &RaftServer{
 		Msgs: sender,
 	}
