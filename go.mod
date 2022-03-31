@@ -8,6 +8,8 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/stretchr/testify v1.7.1
 	go.etcd.io/etcd/raft/v3 v3.5.2
+	golang.org/x/net v0.0.0-20201021035429-f5854403a974
+	google.golang.org/grpc v1.29.1
 )
 
 require (
@@ -33,6 +35,8 @@ require (
 	github.com/ugorji/go/codec v1.2.7 // indirect
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
 	golang.org/x/sys v0.0.0-20210909193231-528a39cd75f3 // indirect
+	golang.org/x/text v0.3.3 // indirect
+	google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/go-playground/validator.v8 v8.18.2 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
