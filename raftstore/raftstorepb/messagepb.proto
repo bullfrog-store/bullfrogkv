@@ -8,10 +8,10 @@ package raftstorepb;
 
 service Message {
   // peer to peer
-  rpc SendRaftMessage(stream RaftMessage) returns (Empty) {}
+  rpc RaftMessage(stream RaftMsgReq) returns (Empty) {}
 }
 
-message RaftMessage {
+message RaftMsgReq {
   raftpb.Message message = 1;
   uint64 from_peer = 2;
   uint64 to_peer = 3;

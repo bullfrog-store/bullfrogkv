@@ -1,7 +1,7 @@
 package raftstore
 
 import (
-	"bullfrogkv/raftstore/peer_storage"
+	"bullfrogkv/raftstore/raft_conn"
 	"bullfrogkv/raftstore/raftstorepb"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
@@ -10,14 +10,16 @@ import (
 type router struct {
 	addr          string
 	raftMsgSender chan<- raftpb.Message
-	peerClient    *peer_storage.PeerClient
+	raftClient    *raft_conn.RaftClient
+	raftServer    *raft_conn.RaftServer
 }
 
 func newRouter(addr string, sender chan<- raftpb.Message) *router {
 	return &router{
 		addr:          addr,
 		raftMsgSender: sender,
-		peerClient:    peer_storage.NewPeerClient(),
+		raftClient:    raft_conn.NewRaftClient(),
+		raftServer:    raft_conn.NewPeerServer(sender),
 	}
 }
 
@@ -29,12 +31,12 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 			// TODO: Handling address does not exist
 			continue
 		}
-		conn, err := r.peerClient.GetPeerConn(to_addr)
+		conn, err := r.raftClient.GetClientConn(to_addr)
 		if err != nil {
 			// TODO: Handling get grpc connection failure
 			continue
 		}
-		peerMsg := &raftstorepb.RaftMessage{
+		peerMsg := &raftstorepb.RaftMsgReq{
 			Message:  &msgs[i],
 			FromPeer: msgs[i].From,
 			ToPeer:   msgs[i].To,
