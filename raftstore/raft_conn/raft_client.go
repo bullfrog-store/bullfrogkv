@@ -34,7 +34,7 @@ func (p *RaftClient) GetClientConn(addr string) (*raftConn, error) {
 		p.RUnlock()
 		return conn, nil
 	}
-
+	p.RUnlock()
 	//establish grpc connection
 	newConn, err := newClientConn(addr)
 	if err != nil {

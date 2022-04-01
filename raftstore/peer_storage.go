@@ -179,7 +179,7 @@ func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
 	ps.applyState.ApplyIndex = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
-	ps.snapshotState.StateType = snap.SnapshotApplying
+	//ps.snapshotState.StateType = snap.SnapshotApplying
 	return raftStateUpdated
 }
 
