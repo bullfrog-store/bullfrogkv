@@ -4,10 +4,13 @@ import (
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
 	"github.com/golang/protobuf/proto"
+	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
 func GetRaftLocalState(engines *storage.Engines) (*raftstorepb.RaftLocalState, error) {
-	raftState := &raftstorepb.RaftLocalState{}
+	raftState := &raftstorepb.RaftLocalState{
+		HardState: &raftpb.HardState{},
+	}
 	value, err := engines.ReadRaft(RaftLocalStateKey())
 	if err == storage.ErrNotFound {
 		return raftState, nil
@@ -30,7 +33,9 @@ func InitRaftLocalState(engines *storage.Engines) *raftstorepb.RaftLocalState {
 }
 
 func GetRaftApplyState(engines *storage.Engines) (*raftstorepb.RaftApplyState, error) {
-	applyState := &raftstorepb.RaftApplyState{}
+	applyState := &raftstorepb.RaftApplyState{
+		TruncatedState: &raftstorepb.RaftTruncatedState{},
+	}
 	value, err := engines.ReadKV(RaftApplyStateKey())
 	if err == storage.ErrNotFound {
 		return applyState, nil
@@ -51,4 +56,3 @@ func InitRaftApplyState(engines *storage.Engines) *raftstorepb.RaftApplyState {
 	}
 	return applyState
 }
-
