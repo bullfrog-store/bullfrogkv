@@ -133,6 +133,8 @@ func (pr *peer) handleReady(rd raft.Ready) {
 }
 
 func (pr *peer) process(ent raftpb.Entry) {
+	pr.ps.applyState.ApplyIndex = ent.Index
+	pr.ps.raftApplyStateWriteToDB(pr.ps.applyState)
 	cmd := &raftstorepb.RaftCmdRequest{}
 	if err := proto.Unmarshal(ent.Data, cmd); err != nil {
 		panic(err)
