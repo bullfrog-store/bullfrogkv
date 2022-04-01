@@ -13,25 +13,25 @@ var (
 
 const (
 	KvPath   = "/kv"
-	RaftPath = "/raft"
+	MetaPath = "/meta"
 )
 
 type Engines struct {
 	// data
 	kv     *storage
 	kvPath string
-	// metadata used by raft
-	raft     *storage
-	raftPath string
+	// metadata used by meta
+	meta     *storage
+	metaPath string
 }
 
-func NewEngines(kvPath, raftPath string) *Engines {
+func NewEngines(kvPath, metaPath string) *Engines {
 	opts := (&pebble.Options{}).EnsureDefaults()
 	return &Engines{
 		kv:       newStorage(kvPath, opts),
 		kvPath:   kvPath,
-		raft:     newStorage(raftPath, opts),
-		raftPath: raftPath,
+		meta:     newStorage(metaPath, opts),
+		metaPath: metaPath,
 	}
 }
 
@@ -46,12 +46,12 @@ func (e *Engines) WriteKV(m Modify) error {
 	}
 }
 
-func (e *Engines) WriteRaft(m Modify) error {
+func (e *Engines) WriteMeta(m Modify) error {
 	switch m.Data.(type) {
 	case Put:
-		return e.raft.Set(m.Key(), m.Value(), m.Sync())
+		return e.meta.Set(m.Key(), m.Value(), m.Sync())
 	case Delete:
-		return e.raft.Delete(m.Key(), m.Sync())
+		return e.meta.Delete(m.Key(), m.Sync())
 	default:
 		return ErrUnknownModify
 	}
@@ -65,8 +65,8 @@ func (e *Engines) ReadKV(key []byte) ([]byte, error) {
 	return val, err
 }
 
-func (e *Engines) ReadRaft(key []byte) ([]byte, error) {
-	val, err := e.raft.Get(key)
+func (e *Engines) ReadMeta(key []byte) ([]byte, error) {
+	val, err := e.meta.Get(key)
 	if errors.Is(err, pebble.ErrNotFound) {
 		return nil, ErrNotFound
 	}
@@ -77,7 +77,7 @@ func (e *Engines) Close() error {
 	if err := e.kv.Close(); err != nil {
 		return err
 	}
-	if err := e.raft.Close(); err != nil {
+	if err := e.meta.Close(); err != nil {
 		return err
 	}
 	return nil
@@ -90,7 +90,7 @@ func (e *Engines) Destroy() error {
 	if err := os.RemoveAll(e.kvPath); err != nil {
 		return err
 	}
-	if err := os.RemoveAll(e.raftPath); err != nil {
+	if err := os.RemoveAll(e.metaPath); err != nil {
 		return err
 	}
 	return nil

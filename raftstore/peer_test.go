@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-func newTestPeerStorage(t *testing.T) *peerStorage {
-	storage := newPeerStorage("log_test")
-	return storage
-}
+//func newTestPeerStorage(t *testing.T) *peerStorage {
+//	storage := newPeerStorage("log_test")
+//	return storage
+//}
 
 func TestNewPeer(t *testing.T) {
 	var wg sync.WaitGroup

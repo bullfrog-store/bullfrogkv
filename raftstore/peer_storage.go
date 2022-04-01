@@ -23,7 +23,7 @@ type peerStorage struct {
 func newPeerStorage(path string) *peerStorage {
 	// snapshotState and snapshotTryCount need not to init
 	ps := &peerStorage{
-		engine: storage.NewEngines(path+storage.KvPath, path+storage.RaftPath),
+		engine: storage.NewEngines(path+storage.KvPath, path+storage.MetaPath),
 	}
 	ps.raftState = meta.InitRaftLocalState(ps.engine)
 	ps.applyState = meta.InitRaftApplyState(ps.engine)
@@ -48,7 +48,7 @@ func (ps *peerStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
 	entries := make([]raftpb.Entry, 0, entrySize)
 	for i := lo; i < hi; i++ {
 		key := meta.RaftLogEntryKey(i)
-		val, err := ps.engine.ReadRaft(key)
+		val, err := ps.engine.ReadMeta(key)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +84,7 @@ func (ps *peerStorage) Term(i uint64) (uint64, error) {
 		return ps.raftState.LastTerm, nil
 	}
 	key := meta.RaftLogEntryKey(i)
-	val, err := ps.engine.ReadRaft(key)
+	val, err := ps.engine.ReadMeta(key)
 	if err != nil {
 		return 0, err
 	}
@@ -165,6 +165,17 @@ func (ps *peerStorage) appendAndUpdate(entries []raftpb.Entry) bool {
 	} else {
 		raftStateUpdated = true
 	}
+	ps.raftLogEntriesWriteToDB(entries)
+	localLastIndex, _ := ps.LastIndex()
+	if localLastIndex > lastIndex {
+		var shouldDeleteEntries []raftpb.Entry
+		for i := lastIndex + 1; i <= localLastIndex; i++ {
+			shouldDeleteEntries = append(shouldDeleteEntries, raftpb.Entry{
+				Index: i,
+			})
+		}
+		ps.raftLogEntriesDeleteDB(shouldDeleteEntries)
+	}
 	ps.raftState.LastTerm = entries[len(entries)-1].Term
 	ps.raftState.LastIndex = entries[len(entries)-1].Index
 	return raftStateUpdated
@@ -212,6 +223,17 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 	return nil
 }
 
+func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
+	for _, entry := range entries {
+		key := meta.RaftLogEntryKey(entry.Index)
+		modify := storage.DeleteMeta(key, true)
+		if err := ps.engine.WriteMeta(modify); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (ps *peerStorage) raftLogEntriesWriteToDB(entries []raftpb.Entry) error {
 	for _, entry := range entries {
 		key := meta.RaftLogEntryKey(entry.Index)
@@ -241,7 +263,7 @@ func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApply
 
 func (ps *peerStorage) doWriteToDB(key []byte, msg proto.Message, sync bool) error {
 	modify := storage.PutMeta(key, msg, sync)
-	if err := ps.engine.WriteRaft(modify); err != nil {
+	if err := ps.engine.WriteMeta(modify); err != nil {
 		return err
 	}
 	return nil
