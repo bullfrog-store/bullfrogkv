@@ -8,32 +8,18 @@ import (
 
 // router is the route control center
 type router struct {
-	addr          string
-	raftMsgSender chan<- raftpb.Message
-	raftMsgStream chan raftpb.Message
-	raftClient    *raft_conn.RaftClient
-	raftServer    *raft_conn.RaftServer
+	addr       string
+	raftClient *raft_conn.RaftClient
+	raftServer *raft_conn.RaftServer
 }
 
 func newRouter(addr string, sender chan<- raftpb.Message) *router {
 	r := &router{
-		addr:          addr,
-		raftMsgSender: sender,
-		raftMsgStream: make(chan raftpb.Message, 1024),
-		raftClient:    raft_conn.NewRaftClient(),
+		addr:       addr,
+		raftServer: raft_conn.NewRaftServer(sender),
+		raftClient: raft_conn.NewRaftClient(),
 	}
-	r.raftServer = raft_conn.NewRaftServer(r.raftMsgStream)
-	go r.fetchRaftMessage()
 	return r
-}
-
-func (r *router) fetchRaftMessage() {
-	for {
-		select {
-		case msg := <-r.raftMsgStream:
-			r.raftMsgSender <- msg
-		}
-	}
 }
 
 func (r *router) sendRaftMessage(msgs []raftpb.Message) {
