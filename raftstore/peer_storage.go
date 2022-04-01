@@ -183,7 +183,7 @@ func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
 	ps.applyState.ApplyIndex = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
-	ps.snapshotState.StateType = snap.SnapshotApplying
+	//ps.snapshotState.StateType = snap.SnapshotApplying
 	return raftStateUpdated
 }
 
@@ -232,7 +232,8 @@ func (ps *peerStorage) raftLocalStateWriteToDB(localState *raftstorepb.RaftLocal
 
 func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApplyState) error {
 	key := meta.RaftApplyStateKey()
-	if err := ps.doWriteToDB(key, applyState, true); err != nil {
+	modify := storage.PutMeta(key, applyState, true)
+	if err := ps.engine.WriteKV(modify); err != nil {
 		return err
 	}
 	return nil

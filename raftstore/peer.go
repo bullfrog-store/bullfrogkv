@@ -8,6 +8,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
+	"golang.org/x/net/context"
 	"time"
 )
 
@@ -101,7 +102,7 @@ func (pr *peer) handleRaftMsgs() {
 			msgs = append(msgs, <-pr.raftMsgReceiver)
 		}
 		for _, msg := range msgs {
-			pr.raftGroup.Step(nil, msg)
+			pr.raftGroup.Step(context.TODO(), msg)
 		}
 	}
 }
