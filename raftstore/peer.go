@@ -5,6 +5,7 @@ import (
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
 	"encoding/binary"
+	"fmt"
 	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -85,6 +86,7 @@ func (pr *peer) run() {
 		case <-ticker.C:
 			pr.tick()
 		case rd := <-pr.raftGroup.Ready():
+			fmt.Println("receive ready: ", rd.Messages)
 			pr.handleReady(rd)
 		}
 	}
