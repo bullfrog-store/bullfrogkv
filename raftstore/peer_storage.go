@@ -21,27 +21,12 @@ type peerStorage struct {
 }
 
 func newPeerStorage(path string) *peerStorage {
-	raftState := &raftstorepb.RaftLocalState{
-		HardState: &raftpb.HardState{
-			Term: 0,
-			Vote: 0,
-		},
-		LastIndex: 0,
-		LastTerm:  0,
-	}
-	applyState := &raftstorepb.RaftApplyState{
-		ApplyIndex: 0,
-		TruncatedState: &raftstorepb.RaftTruncatedState{
-			Index: 0,
-			Term:  0,
-		},
-	}
 	// snapshotState and snapshotTryCount need not to init
 	ps := &peerStorage{
-		engine:     storage.NewEngines(path+storage.KvPath, path+storage.RaftPath),
-		raftState:  raftState,
-		applyState: applyState,
+		engine: storage.NewEngines(path+storage.KvPath, path+storage.RaftPath),
 	}
+	ps.raftState = meta.InitRaftLocalState(ps.engine)
+	ps.applyState = meta.InitRaftApplyState(ps.engine)
 	return ps
 }
 
@@ -236,6 +221,14 @@ func (ps *peerStorage) raftLogEntriesWriteToDB(entries []raftpb.Entry) error {
 func (ps *peerStorage) raftLocalStateWriteToDB(localState *raftstorepb.RaftLocalState) error {
 	key := meta.RaftLocalStateKey()
 	if err := ps.doWriteToDB(key, localState, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApplyState) error {
+	key := meta.RaftApplyStateKey()
+	if err := ps.doWriteToDB(key, applyState, true); err != nil {
 		return err
 	}
 	return nil
