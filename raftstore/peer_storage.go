@@ -84,8 +84,12 @@ func (ps *peerStorage) Term(i uint64) (uint64, error) {
 		return ps.raftState.LastTerm, nil
 	}
 	key := meta.RaftLogEntryKey(i)
+	val, err := ps.engine.ReadRaft(key)
+	if err != nil {
+		return 0, err
+	}
 	var entry raftpb.Entry
-	if err := entry.Unmarshal(key); err != nil {
+	if err = entry.Unmarshal(val); err != nil {
 		return 0, err
 	}
 	return entry.Term, nil
@@ -186,7 +190,7 @@ func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
 func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 	// make sure ready.Snapshot is not nil
 	var raftStateUpdatedAfterApply bool
-	if &rd.Snapshot != nil && &rd.Snapshot.Metadata != nil {
+	if !raft.IsEmptySnap(rd.Snapshot) {
 		raftStateUpdatedAfterApply = ps.applySnapshot(rd.Snapshot)
 	}
 	raftStateUpdatedAfterAppend := ps.appendAndUpdate(rd.Entries)
