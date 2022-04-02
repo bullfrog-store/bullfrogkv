@@ -13,6 +13,10 @@ type putReq struct {
 	Value string `json:"value"`
 }
 
+type deleteReq struct {
+	Key string `json:"key"`
+}
+
 func (e *raftEngine) putKVHandle(c *gin.Context) {
 	var data putReq
 	err := c.ShouldBindJSON(&data)
@@ -60,8 +64,14 @@ func (e *raftEngine) getKVHandle(c *gin.Context) {
 }
 
 func (e *raftEngine) delKVHandle(c *gin.Context) {
-	key := c.Query("key")
-	err := e.engine.Delete(byteForm(key))
+	var data deleteReq
+	err := c.ShouldBindJSON(&data)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, nil)
+		return
+	}
+	key := byteForm(data.Key)
+	err = e.engine.Delete(key)
 	if err != nil {
 		log.Println("del error:", err)
 		c.JSON(http.StatusBadRequest, gin.H{
