@@ -5,13 +5,16 @@ import (
 )
 
 func main() {
-	kvPath := flag.String("k", "kv", "comma kv storage path")
-	raftPath := flag.String("r", "raft", "comma raft storage path")
-	addr := flag.String("a", ":8080", "comma port")
+	// Start command:
+	//     c
+	// Maybe we will use a file as a configuration later.
+
+	storeId := flag.Uint64("i", 0, "storage ID for grpc communication")
+	dataPath := flag.String("p", "/tmp/bullfrog", "based data path prefix")
+	addr := flag.String("a", ":8080", "the port of receiving request")
 	flag.Parse()
 
-	kve := newKVEngine(*kvPath, *raftPath)
-	defer kve.kve.Close()
-	ge := router(kve)
+	engine := newRaftEngine(*storeId, *dataPath)
+	ge := router(engine)
 	ge.Run(*addr)
 }

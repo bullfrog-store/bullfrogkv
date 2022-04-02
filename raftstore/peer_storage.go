@@ -205,7 +205,7 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 		raftStateUpdatedAfterApply = ps.applySnapshot(rd.Snapshot)
 	}
 	raftStateUpdatedAfterAppend := ps.appendAndUpdate(rd.Entries)
-	if &rd.HardState != nil && !ps.isEmptyHardState(rd.HardState) {
+	if !ps.isEmptyHardState(rd.HardState) {
 		ps.raftState.HardState = &rd.HardState
 		raftStateUpdatedAfterAppend = true
 	}

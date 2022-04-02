@@ -12,7 +12,7 @@ type storage struct {
 
 func newStorage(dir string, opts *pebble.Options) *storage {
 	if !exist(dir) {
-		if err := os.Mkdir(dir, os.ModePerm); err != nil {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			panic(err)
 		}
 	}

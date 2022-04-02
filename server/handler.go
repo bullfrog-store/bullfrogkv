@@ -13,22 +13,16 @@ type putReq struct {
 	Value string `json:"value"`
 }
 
-func (k *kvEngine) putKVHandle(c *gin.Context) {
+func (e *raftEngine) putKVHandle(c *gin.Context) {
 	var data putReq
 	err := c.ShouldBindJSON(&data)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, nil)
 		return
 	}
-	key := getBytes(data.Key)
-	val := getBytes(data.Value)
-	err = k.kve.WriteKV(storage.Modify{
-		Data: storage.Put{
-			Key:   key,
-			Value: val,
-			Sync:  true,
-		},
-	})
+	key := byteForm(data.Key)
+	val := byteForm(data.Value)
+	err = e.engine.Set(key, val)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": writeFail,
@@ -40,10 +34,9 @@ func (k *kvEngine) putKVHandle(c *gin.Context) {
 	})
 }
 
-func (k *kvEngine) getKVHandle(c *gin.Context) {
-	keyI := c.Query("key")
-	key := getBytes(keyI)
-	val, err := k.kve.ReadKV(key)
+func (e *raftEngine) getKVHandle(c *gin.Context) {
+	key := c.Query("key")
+	val, err := e.engine.Get(byteForm(key))
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -61,20 +54,14 @@ func (k *kvEngine) getKVHandle(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": getSuccess,
-		"key":     keyI,
+		"key":     key,
 		"data":    string(val),
 	})
 }
 
-func (k *kvEngine) delKVHandle(c *gin.Context) {
+func (e *raftEngine) delKVHandle(c *gin.Context) {
 	key := c.Query("key")
-	err := k.kve.WriteKV(storage.Modify{
-		Data: storage.Delete{
-			Key:  getBytes(key),
-			Sync: true,
-		},
-	})
-
+	err := e.engine.Delete(byteForm(key))
 	if err != nil {
 		log.Println("del error:", err)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -87,6 +74,6 @@ func (k *kvEngine) delKVHandle(c *gin.Context) {
 	})
 }
 
-func getBytes(data string) []byte {
+func byteForm(data string) []byte {
 	return []byte(data)
 }
