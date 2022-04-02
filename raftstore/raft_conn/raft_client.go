@@ -5,6 +5,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"sync"
 	"time"
 )
@@ -31,8 +32,11 @@ func (p *RaftClient) GetClientConn(addr string) (*raftConn, error) {
 	p.RLock()
 	conn, ok := p.conns[addr]
 	if ok {
-		p.RUnlock()
-		return conn, nil
+		_, c := metadata.FromOutgoingContext(conn.ctx)
+		if c {
+			p.RUnlock()
+			return conn, nil
+		}
 	}
 	p.RUnlock()
 	//establish grpc connection
@@ -43,8 +47,7 @@ func (p *RaftClient) GetClientConn(addr string) (*raftConn, error) {
 	p.Lock()
 	defer p.Unlock()
 	if oldConn, ok := p.conns[addr]; ok {
-		newConn.cancel()
-		return oldConn, err
+		oldConn.cancel()
 	}
 	p.conns[addr] = newConn
 	return newConn, nil
@@ -54,8 +57,8 @@ func newClientConn(addr string) (*raftConn, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure(),
 		// reconnect after disconnection
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                3 * time.Second,
-			Timeout:             60 * time.Second,
+			Time:                10 * time.Second,
+			Timeout:             1 * time.Second,
 			PermitWithoutStream: true,
 		}))
 	if err != nil {

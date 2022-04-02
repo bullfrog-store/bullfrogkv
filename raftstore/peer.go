@@ -59,6 +59,7 @@ func newPeer(id uint64, path string) *peer {
 		MaxSizePerMsg:             1024 * 1024,
 		MaxUncommittedEntriesSize: 1 << 30,
 		MaxInflightMsgs:           256,
+		PreVote:                   true,
 	}
 	rpeers := make([]raft.Peer, len(peerMap))
 	for i := range rpeers {
@@ -86,7 +87,7 @@ func (pr *peer) run() {
 		case <-ticker.C:
 			pr.tick()
 		case rd := <-pr.raftGroup.Ready():
-			fmt.Println("receive ready: ", rd.Messages)
+			fmt.Println("msg:", rd.Messages, "entries :", rd.Entries)
 			pr.handleReady(rd)
 		}
 	}

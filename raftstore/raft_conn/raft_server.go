@@ -23,6 +23,7 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 			return err
 		}
 		message := getMessage(msg)
+		//fmt.Println("grpc : ",msg)
 		s.Msgs <- message
 	}
 }
