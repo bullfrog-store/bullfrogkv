@@ -5,7 +5,6 @@ import (
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
 	"encoding/binary"
-	"fmt"
 	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -77,7 +76,7 @@ func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
 	if err != nil {
 		return err
 	}
-	return pr.raftGroup.Propose(nil, data)
+	return pr.raftGroup.Propose(context.TODO(), data)
 }
 
 func (pr *peer) run() {
@@ -87,7 +86,7 @@ func (pr *peer) run() {
 		case <-ticker.C:
 			pr.tick()
 		case rd := <-pr.raftGroup.Ready():
-			fmt.Println("msg:", rd.Messages, "entries :", rd.Entries)
+			//fmt.Println("msg:", rd.Messages, "entries :", rd.Entries)
 			pr.handleReady(rd)
 		}
 	}
@@ -171,7 +170,7 @@ func (pr *peer) linearizableRead(key []byte) *internal.Callback {
 		callback: cb,
 	}
 	pr.readRequestCh <- rr
-	if err := pr.raftGroup.ReadIndex(nil, readCtx); err != nil {
+	if err := pr.raftGroup.ReadIndex(context.TODO(), readCtx); err != nil {
 		panic(err)
 	}
 	return cb
