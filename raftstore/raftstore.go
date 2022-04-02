@@ -3,11 +3,17 @@ package raftstore
 import (
 	"bullfrogkv/raftstore/internal"
 	"bullfrogkv/raftstore/raftstorepb"
+	"bullfrogkv/storage"
+	"errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"log"
 	"net"
 	"time"
+)
+
+var (
+	ErrLostReadResponse = errors.New("it lost read response, retry read")
 )
 
 var peerMap = map[uint64]string{
@@ -65,8 +71,15 @@ func (rs *RaftStore) Set(key []byte, value []byte) error {
 
 func (rs *RaftStore) Get(key []byte) ([]byte, error) {
 	cb := rs.pr.linearizableRead(key)
-	resp := cb.WaitResp()
-	return resp.GetResponse().Get.Value, nil
+	resp := cb.WaitRespWithTimeout(time.Second)
+	if resp == nil {
+		return nil, ErrLostReadResponse
+	}
+	value := resp.GetResponse().Get.Value
+	if value == nil {
+		return nil, storage.ErrNotFound
+	}
+	return value, nil
 }
 
 func (rs *RaftStore) Delete(key []byte) error {

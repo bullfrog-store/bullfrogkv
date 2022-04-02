@@ -5,7 +5,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/metadata"
 	"sync"
 	"time"
 )
@@ -32,11 +31,13 @@ func (p *RaftClient) GetClientConn(addr string) (*raftConn, error) {
 	p.RLock()
 	conn, ok := p.conns[addr]
 	if ok {
-		_, c := metadata.FromOutgoingContext(conn.ctx)
-		if c {
-			p.RUnlock()
-			return conn, nil
-		}
+		//_, c := metadata.FromOutgoingContext(conn.ctx)
+		//if c {
+		//	p.RUnlock()
+		//	return conn, nil
+		//}
+		p.RUnlock()
+		return conn, nil
 	}
 	p.RUnlock()
 	//establish grpc connection

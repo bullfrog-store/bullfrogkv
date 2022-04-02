@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/internal"
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
@@ -27,8 +28,9 @@ type peer struct {
 	ps        *peerStorage
 	router    *router
 
-	readRequestCh chan *readRequest
-	readStateCh   chan raft.ReadState
+	readRequestCh   chan *readRequest
+	readStateMap    map[string]raft.ReadState
+	readStateComing chan struct{}
 
 	raftMsgReceiver chan raftpb.Message
 
@@ -43,7 +45,8 @@ func newPeer(id uint64, path string) *peer {
 		id:                id,
 		ps:                newPeerStorage(path),
 		readRequestCh:     make(chan *readRequest, 1024),
-		readStateCh:       make(chan raft.ReadState, 1024),
+		readStateMap:      make(map[string]raft.ReadState),
+		readStateComing:   make(chan struct{}, 1),
 		raftMsgReceiver:   make(chan raftpb.Message, 1024),
 		compactionTimeout: 100,
 	}
@@ -126,7 +129,10 @@ func (pr *peer) tickCompact() {
 func (pr *peer) handleReady(rd raft.Ready) {
 	pr.ps.saveReadyState(rd)
 	for _, state := range rd.ReadStates {
-		pr.readStateCh <- state
+		pr.readStateMap[string(state.RequestCtx)] = state
+	}
+	if len(rd.ReadStates) > 0 {
+		pr.readStateComing <- struct{}{}
 	}
 	pr.router.sendRaftMessage(rd.Messages)
 	for _, ent := range rd.CommittedEntries {
@@ -153,9 +159,11 @@ func (pr *peer) process(ent raftpb.Entry) {
 func (pr *peer) processRequest(cmd *raftstorepb.Request) {
 	switch cmd.CmdType {
 	case raftstorepb.CmdType_Put:
+		logger.Infof("apply CmdType_Put request: %+v", cmd.Put)
 		modify := storage.PutData(cmd.Put.Key, cmd.Put.Value, true)
 		pr.ps.engine.WriteKV(modify)
 	case raftstorepb.CmdType_Delete:
+		logger.Infof("apply CmdType_Delete request: %+v", cmd.Delete)
 		modify := storage.DeleteData(cmd.Delete.Key, true)
 		pr.ps.engine.WriteKV(modify)
 	}
@@ -169,6 +177,7 @@ func (pr *peer) linearizableRead(key []byte) *internal.Callback {
 		readCtx:  readCtx,
 		callback: cb,
 	}
+	logger.Infof("receive a read request: %+v", rr)
 	pr.readRequestCh <- rr
 	if err := pr.raftGroup.ReadIndex(context.TODO(), readCtx); err != nil {
 		panic(err)
@@ -185,24 +194,36 @@ func (pr *peer) buildReadCtx(ts int64, key []byte) []byte {
 func (pr *peer) handleReadState() {
 	for {
 		select {
-		case state := <-pr.readStateCh:
-			rr := <-pr.readRequestCh
-			if byteEqual(rr.readCtx, state.RequestCtx) {
-				// wait for applied index >= state.Index
-				pr.waitAppliedAdvance(state.Index)
-				value, err := pr.ps.engine.ReadKV(rr.key())
-				if err != nil {
-					if err != storage.ErrNotFound {
-						panic(err)
-					}
+		case <-pr.readStateComing:
+			var rr *readRequest
+			for len(pr.readRequestCh) > 0 {
+				rr = <-pr.readRequestCh
+				if _, ok := pr.readStateMap[string(rr.readCtx)]; ok {
+					break
 				}
-				resp := &raftstorepb.Response{
-					Get: &raftstorepb.GetResponse{Value: value},
-				}
-				rr.callback.Done(internal.NewRaftCmdResponse(resp))
 			}
+			state := pr.readStateMap[string(rr.readCtx)]
+			delete(pr.readStateMap, string(rr.readCtx))
+			logger.Infof("ReadState: %+v, ReadRequest: %+v", state, rr)
+			go pr.readApplied(state, rr)
 		}
 	}
+}
+
+func (pr *peer) readApplied(state raft.ReadState, rr *readRequest) {
+	logger.Infof("wait for applied index >= state.Index")
+	pr.waitAppliedAdvance(state.Index)
+	value, err := pr.ps.engine.ReadKV(rr.key())
+	if err != nil {
+		if err != storage.ErrNotFound {
+			panic(err)
+		}
+	}
+	resp := &raftstorepb.Response{
+		Get: &raftstorepb.GetResponse{Value: value},
+	}
+	logger.Infof("%s get response successfully: %+v", string(rr.key()), resp.Get)
+	rr.callback.Done(internal.NewRaftCmdResponse(resp))
 }
 
 func (pr *peer) waitAppliedAdvance(index uint64) {
@@ -218,6 +239,7 @@ func (pr *peer) waitAppliedAdvance(index uint64) {
 		}
 		doneCh <- struct{}{}
 	}()
+	// wait for applied index >= state.Index
 	<-doneCh
 	close(doneCh)
 }
@@ -229,3 +251,4 @@ func (pr *peer) term() uint64 {
 func (pr *peer) isLeader() bool {
 	return pr.raftGroup.Status().Lead == pr.id
 }
+

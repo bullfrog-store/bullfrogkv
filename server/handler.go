@@ -50,7 +50,7 @@ func (e *raftEngine) getKVHandle(c *gin.Context) {
 		} else {
 			log.Println("get error:", err)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": getFail,
+				"error": err.Error(),
 			})
 			return
 		}
