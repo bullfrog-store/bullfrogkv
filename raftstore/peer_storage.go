@@ -32,7 +32,7 @@ func newPeerStorage(path string) *peerStorage {
 
 func (ps *peerStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
 	raftState := ps.raftState
-	if ps.isEmptyHardState() {
+	if ps.isEmptyHardState(*ps.raftState.HardState) {
 		log.Printf("[Peer Storage]: local state %+v is empty", raftState)
 		return raftpb.HardState{}, raftpb.ConfState{}, nil
 	}
@@ -205,7 +205,7 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 		raftStateUpdatedAfterApply = ps.applySnapshot(rd.Snapshot)
 	}
 	raftStateUpdatedAfterAppend := ps.appendAndUpdate(rd.Entries)
-	if &rd.HardState != nil && ps.isHardStateChanged(rd.HardState) {
+	if &rd.HardState != nil && !ps.isEmptyHardState(rd.HardState) {
 		ps.raftState.HardState = &rd.HardState
 		raftStateUpdatedAfterAppend = true
 	}
@@ -215,10 +215,6 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 		if err != nil {
 			return err
 		}
-	}
-	err := ps.raftLogEntriesWriteToDB(rd.Entries)
-	if err != nil {
-		return err
 	}
 	return nil
 }
@@ -277,11 +273,10 @@ func (ps *peerStorage) isHardStateChanged(recentRaftState raftpb.HardState) bool
 	return true
 }
 
-func (ps *peerStorage) isEmptyHardState() bool {
-	localHardState := ps.raftState.HardState
+func (ps *peerStorage) isEmptyHardState(hardState raftpb.HardState) bool {
 	emptyHardState := raftpb.HardState{}
-	if localHardState.Term == emptyHardState.Term && localHardState.Vote == emptyHardState.Vote &&
-		localHardState.Commit == emptyHardState.Commit {
+	if hardState.Term == emptyHardState.Term && hardState.Vote == emptyHardState.Vote &&
+		hardState.Commit == emptyHardState.Commit {
 		return true
 	}
 	return false
