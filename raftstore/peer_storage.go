@@ -216,10 +216,6 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 			return err
 		}
 	}
-	err := ps.raftLogEntriesWriteToDB(rd.Entries)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
