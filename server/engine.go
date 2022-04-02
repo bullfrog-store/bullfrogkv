@@ -13,10 +13,10 @@ func newRaftEngine(storeId uint64, dataPath string) *raftEngine {
 	return &raftEngine{engine: raftstore.NewRaftStore(storeId, dataPath)}
 }
 
-func router(kve *raftEngine) *gin.Engine {
+func router(engine *raftEngine) *gin.Engine {
 	ge := gin.New()
-	ge.POST("/set", kve.putKVHandle)
-	ge.GET("/get", kve.getKVHandle)
-	ge.POST("/delete", kve.delKVHandle)
+	ge.POST("/set", engine.putKVHandle)
+	ge.GET("/get", engine.getKVHandle)
+	ge.POST("/delete", engine.delKVHandle)
 	return ge
 }

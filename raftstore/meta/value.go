@@ -36,7 +36,7 @@ func GetRaftApplyState(engines *storage.Engines) (*raftstorepb.RaftApplyState, e
 	applyState := &raftstorepb.RaftApplyState{
 		TruncatedState: &raftstorepb.RaftTruncatedState{},
 	}
-	value, err := engines.ReadKV(RaftApplyStateKey())
+	value, err := engines.ReadMeta(RaftApplyStateKey())
 	if err == storage.ErrNotFound {
 		return applyState, nil
 	}

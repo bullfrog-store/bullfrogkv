@@ -3,6 +3,7 @@ package raft_conn
 import (
 	"bullfrogkv/raftstore/raftstorepb"
 	"go.etcd.io/etcd/raft/v3/raftpb"
+	"log"
 )
 
 // TODO: use NewRaftStore().pr.router.raftServer to register grpc server in main.go
@@ -23,7 +24,7 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 			return err
 		}
 		message := getMessage(msg)
-		//fmt.Println("grpc : ",msg)
+		log.Println("grpc: ",msg)
 		s.Msgs <- message
 	}
 }

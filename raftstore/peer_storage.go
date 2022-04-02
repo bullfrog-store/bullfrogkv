@@ -250,8 +250,7 @@ func (ps *peerStorage) raftLocalStateWriteToDB(localState *raftstorepb.RaftLocal
 
 func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApplyState) error {
 	key := meta.RaftApplyStateKey()
-	modify := storage.PutMeta(key, applyState, true)
-	if err := ps.engine.WriteKV(modify); err != nil {
+	if err := ps.doWriteToDB(key, applyState, true); err != nil {
 		return err
 	}
 	return nil
