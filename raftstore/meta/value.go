@@ -11,7 +11,7 @@ func GetRaftLocalState(engines *storage.Engines) (*raftstorepb.RaftLocalState, e
 	raftState := &raftstorepb.RaftLocalState{
 		HardState: &raftpb.HardState{},
 	}
-	value, err := engines.ReadRaft(RaftLocalStateKey())
+	value, err := engines.ReadMeta(RaftLocalStateKey())
 	if err == storage.ErrNotFound {
 		return raftState, nil
 	}
