@@ -16,6 +16,7 @@ type peerStorage struct {
 	engine           *storage.Engines
 	raftState        *raftstorepb.RaftLocalState
 	applyState       *raftstorepb.RaftApplyState
+	confState        *raftpb.ConfState
 	snapshotState    *snap.SnapshotState
 	snapshotTryCount int
 }
@@ -27,6 +28,7 @@ func newPeerStorage(path string) *peerStorage {
 	}
 	ps.raftState = meta.InitRaftLocalState(ps.engine)
 	ps.applyState = meta.InitRaftApplyState(ps.engine)
+	ps.confState = meta.InitConfState(ps.engine)
 	return ps
 }
 
@@ -36,7 +38,10 @@ func (ps *peerStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error
 		log.Printf("[Peer Storage]: local state %+v is empty", raftState)
 		return raftpb.HardState{}, raftpb.ConfState{}, nil
 	}
-	return *raftState.HardState, raftpb.ConfState{}, nil
+	if isEmptyConfState(*ps.confState) {
+		return *raftState.HardState, raftpb.ConfState{}, nil
+	}
+	return *raftState.HardState, *ps.confState, nil
 }
 
 func (ps *peerStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
@@ -254,6 +259,11 @@ func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApply
 		return err
 	}
 	return nil
+}
+
+func (ps *peerStorage) raftConfStateWriteToDB(confState *raftpb.ConfState) error {
+	ps.confState = confState
+	return ps.doWriteToDB(meta.RaftConfStateKey(), confState, true)
 }
 
 func (ps *peerStorage) doWriteToDB(key []byte, msg proto.Message, sync bool) error {

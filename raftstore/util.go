@@ -1,5 +1,8 @@
 package raftstore
 
-func byteEqual(a, b []byte) bool {
-	return string(a) == string(b)
+import "go.etcd.io/etcd/raft/v3/raftpb"
+
+func isEmptyConfState(cs raftpb.ConfState) bool {
+	return len(cs.Voters) == 0 && len(cs.VotersOutgoing) == 0 &&
+		len(cs.Learners) == 0 && len(cs.LearnersNext) == 0
 }

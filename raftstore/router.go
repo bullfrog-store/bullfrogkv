@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/raft_conn"
 	"bullfrogkv/raftstore/raftstorepb"
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -39,6 +40,7 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 			FromPeer: msgs[i].From,
 			ToPeer:   msgs[i].To,
 		}
+		logger.Infof("node %d send msg: %+v", peerMsg.FromPeer, peerMsg.Message.String())
 		err = conn.Send(peerMsg)
 		if err != nil {
 			// TODO: Handling grpc send failure

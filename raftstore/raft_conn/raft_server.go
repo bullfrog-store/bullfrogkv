@@ -1,6 +1,7 @@
 package raft_conn
 
 import (
+	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/raftstorepb"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
@@ -23,7 +24,7 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 			return err
 		}
 		message := getMessage(msg)
-		//log.Println("grpc: ",msg)
+		logger.Debugf("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, message.String())
 		s.Msgs <- message
 	}
 }

@@ -3,11 +3,13 @@ package raftstore
 import (
 	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/internal"
+	"bullfrogkv/raftstore/meta"
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
 	"encoding/binary"
 	"github.com/golang/protobuf/proto"
 	"go.etcd.io/etcd/raft/v3"
+	"go.etcd.io/etcd/raft/v3/quorum"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"golang.org/x/net/context"
 	"time"
@@ -52,6 +54,7 @@ func newPeer(id uint64, path string) *peer {
 	}
 	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)
 
+	logger.Infof("new etcd raft, node: %d", id)
 	c := &raft.Config{
 		ID:                        id,
 		ElectionTick:              10,
@@ -63,11 +66,17 @@ func newPeer(id uint64, path string) *peer {
 		MaxInflightMsgs:           256,
 		PreVote:                   true,
 	}
-	rpeers := make([]raft.Peer, len(peerMap))
-	for i := range rpeers {
-		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
+	if pr.isInitialBootstrap() {
+		rpeers := make([]raft.Peer, len(peerMap))
+		for i := range rpeers {
+			rpeers[i] = raft.Peer{ID: uint64(i + 1)}
+		}
+		pr.raftGroup = raft.StartNode(c, rpeers)
+		pr.ps.raftConfStateWriteToDB(pr.confState())
+	} else {
+		pr.raftGroup = raft.RestartNode(c)
 	}
-	pr.raftGroup = raft.StartNode(c, rpeers)
+	logger.Infof("etcd raft is started")
 	go pr.run()
 	go pr.handleRaftMsgs()
 	go pr.handleReadState()
@@ -83,6 +92,7 @@ func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
 }
 
 func (pr *peer) run() {
+	logger.Infof("peer drive run")
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
@@ -96,6 +106,7 @@ func (pr *peer) run() {
 }
 
 func (pr *peer) handleRaftMsgs() {
+	logger.Infof("peer handle raft msgs")
 	for {
 		msgs := make([]raftpb.Message, 0)
 		select {
@@ -127,6 +138,7 @@ func (pr *peer) tickCompact() {
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
+	logger.Infof("peer handle ready: %+v", rd)
 	pr.ps.saveReadyState(rd)
 	for _, state := range rd.ReadStates {
 		pr.readStateMap[string(state.RequestCtx)] = state
@@ -170,8 +182,7 @@ func (pr *peer) processRequest(cmd *raftstorepb.Request) {
 }
 
 func (pr *peer) linearizableRead(key []byte) *internal.Callback {
-	ts := time.Now().UnixNano()
-	readCtx := pr.buildReadCtx(ts, key)
+	readCtx := pr.buildReadCtx(key)
 	cb := internal.NewCallback()
 	rr := &readRequest{
 		readCtx:  readCtx,
@@ -185,8 +196,9 @@ func (pr *peer) linearizableRead(key []byte) *internal.Callback {
 	return cb
 }
 
-func (pr *peer) buildReadCtx(ts int64, key []byte) []byte {
+func (pr *peer) buildReadCtx(key []byte) []byte {
 	buf := make([]byte, 8)
+	ts := time.Now().UnixNano()
 	binary.LittleEndian.PutUint64(buf, uint64(ts))
 	return append(buf, key...)
 }
@@ -244,6 +256,17 @@ func (pr *peer) waitAppliedAdvance(index uint64) {
 	close(doneCh)
 }
 
+func (pr *peer) confState() *raftpb.ConfState {
+	c := pr.raftGroup.Status().Config
+	return &raftpb.ConfState{
+		Voters:         c.Voters[0].Slice(),
+		VotersOutgoing: c.Voters[1].Slice(),
+		Learners:       quorum.MajorityConfig(c.Learners).Slice(),
+		LearnersNext:   quorum.MajorityConfig(c.LearnersNext).Slice(),
+		AutoLeave:      c.AutoLeave,
+	}
+}
+
 func (pr *peer) term() uint64 {
 	return pr.raftGroup.Status().Term
 }
@@ -252,3 +275,10 @@ func (pr *peer) isLeader() bool {
 	return pr.raftGroup.Status().Lead == pr.id
 }
 
+func (pr *peer) isInitialBootstrap() bool {
+	cs, err := meta.GetRaftConfState(pr.ps.engine)
+	if err != nil {
+		panic(err)
+	}
+	return isEmptyConfState(*cs)
+}

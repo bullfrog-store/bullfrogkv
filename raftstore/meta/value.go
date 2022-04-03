@@ -56,3 +56,26 @@ func InitRaftApplyState(engines *storage.Engines) *raftstorepb.RaftApplyState {
 	}
 	return applyState
 }
+
+func GetRaftConfState(engines *storage.Engines) (*raftpb.ConfState, error) {
+	confState := &raftpb.ConfState{}
+	value, err := engines.ReadMeta(RaftConfStateKey())
+	if err == storage.ErrNotFound {
+		return confState, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = proto.Unmarshal(value, confState); err != nil {
+		return nil, err
+	}
+	return confState, nil
+}
+
+func InitConfState(engines *storage.Engines) *raftpb.ConfState {
+	cs, err := GetRaftConfState(engines)
+	if err != nil {
+		panic(err)
+	}
+	return cs
+}

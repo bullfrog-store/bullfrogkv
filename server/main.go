@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bullfrogkv/logger"
 	"flag"
 )
 
@@ -8,6 +9,8 @@ func main() {
 	// Start command:
 	//     ./main -id=1 -path=/tmp/bullfrog/node1 -addr=127.0.0.1:8080
 	// Maybe we will use a file as a configuration later.
+
+	logger.SetLevel(logger.LogLevelWarn)
 
 	storeId := flag.Uint64("id", 0, "storage ID for grpc communication")
 	dataPath := flag.String("path", "/tmp/bullfrog", "based data path prefix")
