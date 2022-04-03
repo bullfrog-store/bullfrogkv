@@ -125,16 +125,23 @@ func (pr *peer) handleRaftMsgs() {
 
 func (pr *peer) tick() {
 	pr.raftGroup.Tick()
-	pr.tickCompact()
+	pr.tickLogGC()
 }
 
-func (pr *peer) tickCompact() {
+func (pr *peer) tickLogGC() {
 	pr.compactionElapse++
 	if pr.compactionElapse >= pr.compactionTimeout {
 		pr.compactionElapse = 0
-		// TODO(qyl): try to compact log
-		// propose admin request
+		// try to compact log
+		pr.onLogGCTask()
 	}
+}
+
+func (pr *peer) onLogGCTask() {
+	if !pr.isLeader() {
+		return
+	}
+	// TODO:
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
