@@ -1,6 +1,7 @@
 package raft_conn
 
 import (
+	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/raftstorepb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -26,35 +27,54 @@ func NewRaftClient() *RaftClient {
 		conns: make(map[string]*raftConn),
 	}
 }
-func (p *RaftClient) GetClientConn(addr string) (*raftConn, error) {
+
+func (rc *RaftClient) GetRaftConn(addr string) (*raftConn, error) {
 	// grpc connection already established
-	p.RLock()
-	conn, ok := p.conns[addr]
+	rc.RLock()
+	conn, ok := rc.conns[addr]
 	if ok {
-		//_, c := metadata.FromOutgoingContext(conn.ctx)
-		//if c {
-		//	p.RUnlock()
-		//	return conn, nil
-		//}
-		p.RUnlock()
+		rc.RUnlock()
 		return conn, nil
 	}
-	p.RUnlock()
+	rc.RUnlock()
 	//establish grpc connection
-	newConn, err := newClientConn(addr)
+	newConn, err := newRaftConn(addr)
 	if err != nil {
 		return nil, err
 	}
-	p.Lock()
-	defer p.Unlock()
-	if oldConn, ok := p.conns[addr]; ok {
+	rc.Lock()
+	defer rc.Unlock()
+	if oldConn, ok := rc.conns[addr]; ok {
 		oldConn.cancel()
 	}
-	p.conns[addr] = newConn
+	rc.conns[addr] = newConn
 	return newConn, nil
 }
 
-func newClientConn(addr string) (*raftConn, error) {
+func (rc *RaftClient) Send(addr string, msg *raftstorepb.RaftMsgReq) error {
+	conn, err := rc.GetRaftConn(addr)
+	if err != nil {
+		return err
+	}
+	err = conn.Send(msg)
+	if err == nil {
+		return nil
+	}
+	logger.Warnf("meet error when message send: %+v", err)
+
+	rc.Lock()
+	conn.Stop()
+	delete(rc.conns, addr)
+	rc.Unlock()
+
+	conn, err = rc.GetRaftConn(addr)
+	if err != nil {
+		return err
+	}
+	return conn.Send(msg)
+}
+
+func newRaftConn(addr string) (*raftConn, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure(),
 		// reconnect after disconnection
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -83,4 +103,8 @@ func (c *raftConn) Send(msg *raftstorepb.RaftMsgReq) error {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	return c.stream.Send(msg)
+}
+
+func (c *raftConn) Stop() {
+	c.cancel()
 }

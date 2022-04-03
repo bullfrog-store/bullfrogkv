@@ -24,24 +24,19 @@ func newRouter(addr string, sender chan<- raftpb.Message) *router {
 }
 
 func (r *router) sendRaftMessage(msgs []raftpb.Message) {
-	for i := range msgs {
-		addr, ok := peerMap[msgs[i].To]
+	for _, msg := range msgs {
+		addr, ok := peerMap[msg.To]
 		if !ok {
 			// TODO: Handling address does not exist
 			continue
 		}
-		conn, err := r.raftClient.GetClientConn(addr)
-		if err != nil {
-			// TODO: Handling get grpc connection failure
-			continue
-		}
 		peerMsg := &raftstorepb.RaftMsgReq{
-			Message:  &msgs[i],
-			FromPeer: msgs[i].From,
-			ToPeer:   msgs[i].To,
+			Message:  &msg,
+			FromPeer: msg.From,
+			ToPeer:   msg.To,
 		}
 		logger.Infof("node %d send msg: %+v", peerMsg.FromPeer, peerMsg.Message.String())
-		err = conn.Send(peerMsg)
+		err := r.raftClient.Send(addr, peerMsg)
 		if err != nil {
 			// TODO: Handling grpc send failure
 			continue
