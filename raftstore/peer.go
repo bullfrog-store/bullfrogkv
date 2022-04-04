@@ -12,6 +12,7 @@ import (
 	"go.etcd.io/etcd/raft/v3/quorum"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"golang.org/x/net/context"
+	"math"
 	"time"
 )
 
@@ -104,7 +105,6 @@ func (pr *peer) run() {
 		case <-ticker.C:
 			pr.tick()
 		case rd := <-pr.raftGroup.Ready():
-			//fmt.Println("msg:", rd.Messages, "entries :", rd.Entries)
 			pr.handleReady(rd)
 		}
 	}
@@ -155,12 +155,8 @@ func (pr *peer) onLogGCTask() {
 		return
 	}
 
-	compactIdx -= 1
-	if compactIdx < firstIdx {
-		// In case compact_idx == first_idx before subtraction.
-		return
-	}
-
+	// improve the success rate of log compaction
+	compactIdx--
 	term, err := pr.ps.Term(compactIdx)
 	if err != nil {
 		logger.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
@@ -232,14 +228,14 @@ func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
 			applySt.TruncatedState.Index = compactLog.CompactIndex
 			applySt.TruncatedState.Term = compactLog.CompactTerm
 			pr.ps.raftApplyStateWriteToDB(applySt)
-			pr.gcRaftLog(pr.lastCompactedIdx, applySt.TruncatedState.Index+1)
+			go pr.gcRaftLog(pr.lastCompactedIdx, applySt.TruncatedState.Index+1)
 			pr.lastCompactedIdx = applySt.TruncatedState.Index
 		}
 	}
 }
 
 func (pr *peer) gcRaftLog(start, end uint64) error {
-	entries, err := pr.ps.Entries(start, end, 0)
+	entries, err := pr.ps.Entries(start, end, math.MaxUint64)
 	if err != nil {
 		return err
 	}
