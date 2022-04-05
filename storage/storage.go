@@ -46,14 +46,14 @@ func (s *storage) delete(key []byte, sync bool) error {
 	return s.db.Delete(key, toWriteOptions(sync))
 }
 
-func (s *storage) snapshot() [][]byte {
+func (s *storage) snapshot() []byte {
 	snap := s.db.NewSnapshot()
 	iter := snap.NewIter(nil)
-	kv := make([][]byte, 0)
+	pairs := make([]Pair, 0)
 	for iter.First(); iter.Valid(); iter.Next() {
-		kv = append(kv, Encode(Pair{Key: iter.Key(), Val: iter.Value()}))
+		pairs = append(pairs, Pair{Key: iter.Key(), Val: iter.Value()})
 	}
-	return kv
+	return Encode(pairs)
 }
 
 func (s *storage) close() error {

@@ -73,7 +73,7 @@ func (e *Engines) ReadMeta(key []byte) ([]byte, error) {
 	return val, err
 }
 
-func (e *Engines) KVSnapshot() [][]byte {
+func (e *Engines) KVSnapshot() []byte {
 	return e.kv.snapshot()
 }
 

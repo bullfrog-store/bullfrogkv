@@ -9,18 +9,40 @@ type Pair struct {
 	Val []byte
 }
 
-func Encode(p Pair) []byte {
-	buf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(buf, uint32(len(p.Key)))
+func Encode(pairs []Pair) []byte {
+	buf := make([]byte, 0)
+	for _, p := range pairs {
+		buf = append(buf, encode(p)...)
+	}
+	return buf
+}
+
+func Decode(encs []byte) []Pair {
+	pairs := make([]Pair, 0)
+	offset := 0
+	for offset < len(encs) {
+		i := binary.LittleEndian.Uint32(encs[offset:])
+		p := decode(append([]byte{}, encs[offset:offset+int(i)]...))
+		pairs = append(pairs, p)
+		offset += int(i)
+	}
+	return pairs
+}
+
+func encode(p Pair) []byte {
+	ksize, vsize := len(p.Key), len(p.Val)
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint32(buf, uint32(ksize+vsize+8))
+	binary.LittleEndian.PutUint32(buf[4:], uint32(ksize))
 	buf = append(buf, p.Key...)
 	buf = append(buf, p.Val...)
 	return buf
 }
 
-func Decode(enc []byte) Pair {
+func decode(enc []byte) Pair {
 	p := Pair{}
-	size := binary.LittleEndian.Uint32(enc)
-	p.Key = append([]byte{}, enc[4:4+size]...)
-	p.Val = append([]byte{}, enc[4+size:]...)
+	ksize := binary.LittleEndian.Uint32(enc[4:])
+	p.Key = append([]byte{}, enc[8:8+ksize]...)
+	p.Val = append([]byte{}, enc[8+ksize:]...)
 	return p
 }
