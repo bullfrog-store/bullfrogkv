@@ -12,7 +12,13 @@ import (
 	"go.etcd.io/etcd/raft/v3/quorum"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"golang.org/x/net/context"
+	"math"
 	"time"
+)
+
+const (
+	defaultLogGCCountLimit    = 10
+	defaultCompactCheckPeriod = 100
 )
 
 type readRequest struct {
@@ -50,7 +56,7 @@ func newPeer(id uint64, path string) *peer {
 		readStateMap:      make(map[string]raft.ReadState),
 		readStateComing:   make(chan struct{}, 1),
 		raftMsgReceiver:   make(chan raftpb.Message, 1024),
-		compactionTimeout: 100,
+		compactionTimeout: defaultCompactCheckPeriod,
 	}
 	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)
 
@@ -99,7 +105,6 @@ func (pr *peer) run() {
 		case <-ticker.C:
 			pr.tick()
 		case rd := <-pr.raftGroup.Ready():
-			//fmt.Println("msg:", rd.Messages, "entries :", rd.Entries)
 			pr.handleReady(rd)
 		}
 	}
@@ -125,16 +130,48 @@ func (pr *peer) handleRaftMsgs() {
 
 func (pr *peer) tick() {
 	pr.raftGroup.Tick()
-	pr.tickCompact()
+	pr.tickLogGC()
 }
 
-func (pr *peer) tickCompact() {
+func (pr *peer) tickLogGC() {
 	pr.compactionElapse++
 	if pr.compactionElapse >= pr.compactionTimeout {
 		pr.compactionElapse = 0
-		// TODO(qyl): try to compact log
-		// propose admin request
+		// try to compact log
+		pr.onLogGCTask()
 	}
+}
+
+func (pr *peer) onLogGCTask() {
+	if !pr.isLeader() {
+		return
+	}
+	appliedIdx := pr.ps.AppliedIndex()
+	firstIdx, _ := pr.ps.FirstIndex()
+	var compactIdx uint64
+	if appliedIdx > firstIdx && appliedIdx-firstIdx >= defaultLogGCCountLimit {
+		compactIdx = appliedIdx
+	} else {
+		return
+	}
+
+	// improve the success rate of log compaction
+	compactIdx--
+	term, err := pr.ps.Term(compactIdx)
+	if err != nil {
+		logger.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
+		panic(err)
+	}
+
+	header := &raftstorepb.RaftRequestHeader{Term: term}
+	request := &raftstorepb.AdminRequest{
+		CmdType: raftstorepb.AdminCmdType_CompactLog,
+		CompactLog: &raftstorepb.CompactLogRequest{
+			CompactIndex: compactIdx,
+			CompactTerm:  term,
+		},
+	}
+	pr.propose(internal.NewRaftAdminCmdRequest(header, request))
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
@@ -164,21 +201,45 @@ func (pr *peer) process(ent raftpb.Entry) {
 		// process common request
 		pr.processRequest(cmd.Request)
 	} else if cmd.AdminRequest != nil {
-		// TODO(qyl): process admin request
+		// process admin request
+		pr.processAdminRequest(cmd.AdminRequest)
 	}
 }
 
-func (pr *peer) processRequest(cmd *raftstorepb.Request) {
-	switch cmd.CmdType {
+func (pr *peer) processRequest(request *raftstorepb.Request) {
+	switch request.CmdType {
 	case raftstorepb.CmdType_Put:
-		logger.Infof("apply CmdType_Put request: %+v", cmd.Put)
-		modify := storage.PutData(cmd.Put.Key, cmd.Put.Value, true)
+		logger.Infof("apply CmdType_Put request: %+v", request.Put)
+		modify := storage.PutData(request.Put.Key, request.Put.Value, true)
 		pr.ps.engine.WriteKV(modify)
 	case raftstorepb.CmdType_Delete:
-		logger.Infof("apply CmdType_Delete request: %+v", cmd.Delete)
-		modify := storage.DeleteData(cmd.Delete.Key, true)
+		logger.Infof("apply CmdType_Delete request: %+v", request.Delete)
+		modify := storage.DeleteData(request.Delete.Key, true)
 		pr.ps.engine.WriteKV(modify)
 	}
+}
+
+func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
+	switch request.CmdType {
+	case raftstorepb.AdminCmdType_CompactLog:
+		compactLog := request.GetCompactLog()
+		applySt := pr.ps.applyState
+		if compactLog.CompactIndex >= applySt.TruncatedState.Index {
+			applySt.TruncatedState.Index = compactLog.CompactIndex
+			applySt.TruncatedState.Term = compactLog.CompactTerm
+			pr.ps.raftApplyStateWriteToDB(applySt)
+			go pr.gcRaftLog(pr.lastCompactedIdx, applySt.TruncatedState.Index+1)
+			pr.lastCompactedIdx = applySt.TruncatedState.Index
+		}
+	}
+}
+
+func (pr *peer) gcRaftLog(start, end uint64) error {
+	entries, err := pr.ps.Entries(start, end, math.MaxUint64)
+	if err != nil {
+		return err
+	}
+	return pr.ps.raftLogEntriesDeleteDB(entries)
 }
 
 func (pr *peer) linearizableRead(key []byte) *internal.Callback {
