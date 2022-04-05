@@ -51,7 +51,8 @@ func (s *storage) snapshot() []byte {
 	iter := snap.NewIter(nil)
 	pairs := make([]Pair, 0)
 	for iter.First(); iter.Valid(); iter.Next() {
-		pairs = append(pairs, Pair{Key: iter.Key(), Val: iter.Value()})
+		p := Pair{Key: append([]byte{}, iter.Key()...), Val: append([]byte{}, iter.Value()...)}
+		pairs = append(pairs, p)
 	}
 	return Encode(pairs)
 }
