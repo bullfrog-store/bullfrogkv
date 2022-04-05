@@ -3,6 +3,8 @@ package raftstore
 import (
 	"bullfrogkv/raftstore/meta"
 	"bullfrogkv/raftstore/raftstorepb"
+	"bullfrogkv/storage"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/raft/v3"
@@ -268,5 +270,61 @@ func TestPeerStorageRestart(t *testing.T) {
 		var entry raftpb.Entry
 		assert.Nil(t, entry.Unmarshal(val))
 		assert.Equal(t, newTestEntry(uint64(index), uint64(index)), entry)
+	}
+}
+
+func setToPebble(ps *peerStorage) {
+	testDatas := []struct {
+		Key []byte
+		Val []byte
+	}{
+		{
+			Key: []byte("1"),
+			Val: []byte("1"),
+		},
+		{
+			Key: []byte("2"),
+			Val: []byte("2"),
+		},
+		{
+			Key: []byte("3"),
+			Val: []byte("3"),
+		},
+		{
+			Key: []byte("4"),
+			Val: []byte("4"),
+		},
+	}
+
+	for _, data := range testDatas {
+		ps.engine.WriteKV(storage.Modify{
+			Data: storage.Put{
+				Key:   data.Key,
+				Value: data.Val,
+				Sync:  true,
+			},
+		})
+	}
+}
+
+func TestSnapshot(t *testing.T) {
+	ps := newTestPeerStorage()
+
+	setToPebble(ps)
+	snapshot, err := ps.Snapshot()
+	if err != nil {
+		assert.Equal(t, err, raft.ErrSnapshotTemporarilyUnavailable)
+	}
+
+	for {
+		snapshot, err = ps.Snapshot()
+		if err == nil {
+			break
+		}
+	}
+	fmt.Println(snapshot.Metadata)
+	ss := storage.Decode(snapshot.Data)
+	for _, s := range ss {
+		fmt.Println(string(s.Key), ":", string(s.Val))
 	}
 }
