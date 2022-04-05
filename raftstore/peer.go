@@ -78,7 +78,8 @@ func newPeer(id uint64, path string) *peer {
 			rpeers[i] = raft.Peer{ID: uint64(i + 1)}
 		}
 		pr.raftGroup = raft.StartNode(c, rpeers)
-		pr.ps.raftConfStateWriteToDB(pr.confState())
+		pr.ps.confState = pr.confState()
+		pr.ps.raftConfStateWriteToDB(pr.ps.confState)
 	} else {
 		pr.raftGroup = raft.RestartNode(c)
 	}

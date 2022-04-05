@@ -262,7 +262,6 @@ func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApply
 }
 
 func (ps *peerStorage) raftConfStateWriteToDB(confState *raftpb.ConfState) error {
-	ps.confState = confState
 	return ps.doWriteToDB(meta.RaftConfStateKey(), confState, true)
 }
 
