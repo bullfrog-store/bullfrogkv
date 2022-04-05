@@ -24,11 +24,11 @@ func newStorage(dir string, opts *pebble.Options) *storage {
 	return &storage{db}
 }
 
-func (s *storage) Set(key, val []byte, sync bool) error {
+func (s *storage) set(key, val []byte, sync bool) error {
 	return s.db.Set(key, val, toWriteOptions(sync))
 }
 
-func (s *storage) Get(key []byte) ([]byte, error) {
+func (s *storage) get(key []byte) ([]byte, error) {
 	val, closer, err := s.db.Get(key)
 	if err != nil {
 		return nil, err
@@ -42,11 +42,21 @@ func (s *storage) Get(key []byte) ([]byte, error) {
 	return v, nil
 }
 
-func (s *storage) Delete(key []byte, sync bool) error {
+func (s *storage) delete(key []byte, sync bool) error {
 	return s.db.Delete(key, toWriteOptions(sync))
 }
 
-func (s *storage) Close() error {
+func (s *storage) snapshot() [][]byte {
+	snap := s.db.NewSnapshot()
+	iter := snap.NewIter(nil)
+	kv := make([][]byte, 0)
+	for iter.First(); iter.Valid(); iter.Next() {
+		kv = append(kv, Encode(Pair{Key: iter.Key(), Val: iter.Value()}))
+	}
+	return kv
+}
+
+func (s *storage) close() error {
 	return s.db.Close()
 }
 
