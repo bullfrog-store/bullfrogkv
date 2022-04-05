@@ -8,6 +8,8 @@ const (
 	SnapshotGenerating SnapshotStateType = iota
 	SnapshotRelaxed
 	SnapshotApplying
+	SnapshotToGen
+	SnapshotApplied
 )
 
 type SnapshotState struct {

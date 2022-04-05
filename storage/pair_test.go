@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -34,4 +35,5 @@ func TestEncodeAndDecode(t *testing.T) {
 		assert.Equal(t, pairs[i].Key, dec[i].Key)
 		assert.Equal(t, pairs[i].Val, dec[i].Val)
 	}
+	fmt.Println(len(enc))
 }

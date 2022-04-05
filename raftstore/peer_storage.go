@@ -29,6 +29,9 @@ func newPeerStorage(path string) *peerStorage {
 	ps.raftState = meta.InitRaftLocalState(ps.engine)
 	ps.applyState = meta.InitRaftApplyState(ps.engine)
 	ps.confState = meta.InitConfState(ps.engine)
+	ps.snapshotState = &snap.SnapshotState{
+		StateType: snap.SnapshotToGen,
+	}
 	return ps
 }
 
@@ -120,7 +123,7 @@ func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
 			return snapshot, raft.ErrSnapshotTemporarilyUnavailable
 		}
 		ps.snapshotState.StateType = snap.SnapshotRelaxed
-		if &snapshot.Metadata != nil {
+		if !raft.IsEmptySnap(snapshot) {
 			ps.snapshotTryCount = 0
 			if ps.isValidateSnapshot(snapshot) {
 				return snapshot, nil
@@ -139,8 +142,27 @@ func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
 		StateType: snap.SnapshotGenerating,
 		Receiver:  receiver,
 	}
-	// TODO: Schedule a snapshot generating task
+	// Schedule a snapshot generating task
+	go ps.doSnapshot()
 	return snapshot, raft.ErrSnapshotTemporarilyUnavailable
+}
+
+func (ps *peerStorage) doSnapshot() {
+	idx := ps.AppliedIndex()
+	term, err := ps.Term(idx)
+	if err != nil {
+		return
+	}
+	snapshot := &raftpb.Snapshot{
+		Metadata: raftpb.SnapshotMetadata{
+			Term:  term,
+			Index: idx,
+		},
+	}
+
+	data := ps.engine.KVSnapshot()
+	snapshot.Data = data
+	ps.snapshotState.Receiver <- snapshot
 }
 
 func (ps *peerStorage) AppliedIndex() uint64 {
@@ -200,6 +222,9 @@ func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
 	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
 	//ps.snapshotState.StateType = snap.SnapshotApplying
+	// persist
+	ps.raftApplyStateWriteToDB(ps.applyState)
+	go ps.applySnapToDB(snapshot.Data)
 	return raftStateUpdated
 }
 
@@ -222,6 +247,15 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 		}
 	}
 	return nil
+}
+
+func (ps *peerStorage) applySnapToDB(data []byte) {
+	ps.snapshotState.StateType = snap.SnapshotApplying
+	pairs := storage.Decode(data)
+	for _, pair := range pairs {
+		ps.engine.WriteKV(storage.PutData(pair.Key, pair.Val, true))
+	}
+	ps.snapshotState.StateType = snap.SnapshotApplied
 }
 
 func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
