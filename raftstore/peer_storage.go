@@ -153,11 +153,10 @@ func (ps *peerStorage) doSnapshot() {
 	if err != nil {
 		return
 	}
-
 	snapshot := &raftpb.Snapshot{
 		Metadata: raftpb.SnapshotMetadata{
-			Term:  idx,
-			Index: term,
+			Term:  term,
+			Index: idx,
 		},
 	}
 
@@ -225,6 +224,7 @@ func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
 	//ps.snapshotState.StateType = snap.SnapshotApplying
 	// persist
 	ps.raftApplyStateWriteToDB(ps.applyState)
+	go ps.applySnapToDB(snapshot.Data)
 	return raftStateUpdated
 }
 
@@ -247,6 +247,15 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 		}
 	}
 	return nil
+}
+
+func (ps *peerStorage) applySnapToDB(data []byte) {
+	ps.snapshotState.StateType = snap.SnapshotApplying
+	pairs := storage.Decode(data)
+	for _, pair := range pairs {
+		ps.engine.WriteKV(storage.PutData(pair.Key, pair.Val, true))
+	}
+	ps.snapshotState.StateType = snap.SnapshotApplied
 }
 
 func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {

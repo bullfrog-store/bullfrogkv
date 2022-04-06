@@ -3,6 +3,7 @@ package raftstore
 import (
 	"bullfrogkv/raftstore/meta"
 	"bullfrogkv/raftstore/raftstorepb"
+	"bullfrogkv/raftstore/snap"
 	"bullfrogkv/storage"
 	"fmt"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +20,10 @@ const (
 
 func newTestPeerStorage() *peerStorage {
 	return newPeerStorage(enginePath)
+}
+
+func newTestPsWithPath(path string) *peerStorage {
+	return newPeerStorage(path)
 }
 
 func newTestPeerStorageFromEntries(t *testing.T, entries []raftpb.Entry) *peerStorage {
@@ -156,10 +161,6 @@ func TestPeerStorageAppliedIndex(t *testing.T) {
 	assert.Equal(t, uint64(5), applyIndex)
 }
 
-func TestPeerStorageSnapshot(t *testing.T) {
-	// TODO: do this test function after finishing another todo in peerStorage.Snapshot()
-}
-
 func TestPeerStorageAppendAndUpdate(t *testing.T) {
 	entries := []raftpb.Entry{
 		newTestEntry(3, 3),
@@ -273,7 +274,15 @@ func TestPeerStorageRestart(t *testing.T) {
 	}
 }
 
-func setToPebble(ps *peerStorage) {
+func setToPebble(t *testing.T) *peerStorage {
+	entries := []raftpb.Entry{
+		newTestEntry(2, 3),
+		newTestEntry(2, 4),
+		newTestEntry(2, 5),
+		newTestEntry(2, 6),
+	}
+	ps := newTestPeerStorageFromEntries(t, entries)
+
 	testDatas := []struct {
 		Key []byte
 		Val []byte
@@ -305,12 +314,35 @@ func setToPebble(ps *peerStorage) {
 			},
 		})
 	}
+	return ps
+}
+
+func TestSetToPebble(t *testing.T) {
+	setToPebble(t)
 }
 
 func TestSnapshot(t *testing.T) {
-	ps := newTestPeerStorage()
+	ps := setToPebble(t)
+	snapshot, err := ps.Snapshot()
+	if err != nil {
+		assert.Equal(t, err, raft.ErrSnapshotTemporarilyUnavailable)
+	}
+	for {
+		snapshot, err = ps.Snapshot()
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	fmt.Println(snapshot.Metadata)
+	ss := storage.Decode(snapshot.Data)
+	for _, s := range ss {
+		fmt.Println(string(s.Key), ":", string(s.Val))
+	}
+}
 
-	setToPebble(ps)
+func TestApplySnap(t *testing.T) {
+	ps := setToPebble(t)
 	snapshot, err := ps.Snapshot()
 	if err != nil {
 		assert.Equal(t, err, raft.ErrSnapshotTemporarilyUnavailable)
@@ -322,9 +354,29 @@ func TestSnapshot(t *testing.T) {
 			break
 		}
 	}
-	fmt.Println(snapshot.Metadata)
-	ss := storage.Decode(snapshot.Data)
-	for _, s := range ss {
-		fmt.Println(string(s.Key), ":", string(s.Val))
+	//ss := storage.Decode(snapshot.Data)
+	//for _, s := range ss {
+	//	fmt.Println(string(s.Key), ":", string(s.Val))
+	//}
+
+	newPs := newTestPsWithPath("../test_data_new")
+	newPs.applySnapshot(snapshot)
+	for newPs.snapshotState.StateType != snap.SnapshotApplied {
+
 	}
+	val, err := newPs.engine.ReadKV([]byte("1"))
+	assert.Nil(t, err)
+	fmt.Println(string(val))
+
+	val, err = newPs.engine.ReadKV([]byte("2"))
+	assert.Nil(t, err)
+	fmt.Println(string(val))
+
+	val, err = newPs.engine.ReadKV([]byte("3"))
+	assert.Nil(t, err)
+	fmt.Println(string(val))
+
+	val, err = newPs.engine.ReadKV([]byte("4"))
+	assert.Nil(t, err)
+	fmt.Println(string(val))
 }

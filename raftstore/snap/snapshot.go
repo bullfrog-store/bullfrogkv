@@ -9,6 +9,7 @@ const (
 	SnapshotRelaxed
 	SnapshotApplying
 	SnapshotToGen
+	SnapshotApplied
 )
 
 type SnapshotState struct {
