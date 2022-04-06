@@ -59,6 +59,7 @@ func newPeer(id uint64, path string) *peer {
 		compactionTimeout: defaultCompactCheckPeriod,
 	}
 	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)
+	pr.lastCompactedIdx = pr.ps.applyState.TruncatedState.Index
 
 	logger.Infof("new etcd raft, node: %d", id)
 	c := &raft.Config{
@@ -229,7 +230,7 @@ func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
 			applySt.TruncatedState.Index = compactLog.CompactIndex
 			applySt.TruncatedState.Term = compactLog.CompactTerm
 			pr.ps.raftApplyStateWriteToDB(applySt)
-			go pr.gcRaftLog(pr.lastCompactedIdx, applySt.TruncatedState.Index+1)
+			go pr.gcRaftLog(pr.lastCompactedIdx+1, applySt.TruncatedState.Index+1)
 			pr.lastCompactedIdx = applySt.TruncatedState.Index
 		}
 	}
