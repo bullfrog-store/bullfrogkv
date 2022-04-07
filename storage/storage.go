@@ -48,7 +48,9 @@ func (s *storage) delete(key []byte, sync bool) error {
 
 func (s *storage) snapshot() []byte {
 	snap := s.db.NewSnapshot()
+	defer snap.Close()
 	iter := snap.NewIter(nil)
+	defer iter.Close()
 	pairs := make([]Pair, 0)
 	for iter.First(); iter.Valid(); iter.Next() {
 		p := Pair{Key: append([]byte{}, iter.Key()...), Val: iter.Value()}

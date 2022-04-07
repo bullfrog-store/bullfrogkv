@@ -379,4 +379,6 @@ func TestApplySnap(t *testing.T) {
 	val, err = newPs.engine.ReadKV([]byte("4"))
 	assert.Nil(t, err)
 	fmt.Println(string(val))
+	cleanUpData(ps)
+	cleanUpData(newPs)
 }
