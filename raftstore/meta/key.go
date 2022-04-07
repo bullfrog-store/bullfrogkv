@@ -30,7 +30,7 @@ func buildRaftApplyStateKey(prefix byte) []byte {
 	return key
 }
 
-func buildRaftConfStatePrefix(prefix byte) []byte {
+func buildRaftConfStateKey(prefix byte) []byte {
 	key := make([]byte, 9)
 	key[0] = prefix
 	// To ensure that the key length is consistent, we set aside 8 bytes here.
@@ -50,5 +50,5 @@ func RaftApplyStateKey() []byte {
 }
 
 func RaftConfStateKey() []byte {
-	return buildRaftConfStatePrefix(RaftConfStatePrefix)
+	return buildRaftConfStateKey(RaftConfStatePrefix)
 }
