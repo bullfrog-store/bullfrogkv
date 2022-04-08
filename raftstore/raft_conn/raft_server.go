@@ -8,12 +8,12 @@ import (
 
 // TODO: use NewRaftStore().pr.router.raftServer to register grpc server in main.go
 type RaftServer struct {
-	Msgs chan<- raftpb.Message
+	msgc chan<- raftpb.Message
 }
 
 func NewRaftServer(sender chan<- raftpb.Message) *RaftServer {
 	return &RaftServer{
-		Msgs: sender,
+		msgc: sender,
 	}
 }
 
@@ -23,12 +23,13 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 		if err != nil {
 			return err
 		}
-		message := getMessage(msg)
-		logger.Debugf("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, message.String())
-		s.Msgs <- message
+		rm := raftMsg(msg)
+		logger.Debugf("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
+		s.msgc <- rm
 	}
 }
 
-func getMessage(m *raftstorepb.RaftMsgReq) raftpb.Message {
-	return *m.Message
+// raftMsg TODO: rename RaftMsgReq
+func raftMsg(msg *raftstorepb.RaftMsgReq) raftpb.Message {
+	return *msg.Message
 }

@@ -45,7 +45,7 @@ func newTestPeerStorageFromEntries(t *testing.T, entries []raftpb.Entry) *peerSt
 }
 
 func cleanUpData(ps *peerStorage) {
-	if err := ps.engine.Destroy(); err != nil {
+	if err := ps.engines.Destroy(); err != nil {
 		panic(err)
 	}
 }
@@ -255,7 +255,7 @@ func TestPeerStorageRestart(t *testing.T) {
 	}
 	// Start peer storage with given entries
 	ps := newTestPeerStorageFromEntries(t, entries)
-	assert.Nil(t, ps.engine.Close())
+	assert.Nil(t, ps.engines.Close())
 	// Restart peer storage without given entries
 	time.Sleep(1)
 	ps = newTestPeerStorage()
@@ -266,7 +266,7 @@ func TestPeerStorageRestart(t *testing.T) {
 	assert.Equal(t, uint64(3), ps.applyState.TruncatedState.Index)
 	for index := 3; index <= 5; index++ {
 		key := meta.RaftLogEntryKey(uint64(index))
-		val, err := ps.engine.ReadMeta(key)
+		val, err := ps.engines.ReadMeta(key)
 		assert.Nil(t, err)
 		var entry raftpb.Entry
 		assert.Nil(t, entry.Unmarshal(val))
@@ -306,7 +306,7 @@ func setToPebble(t *testing.T) *peerStorage {
 	}
 
 	for _, data := range testDatas {
-		ps.engine.WriteKV(storage.Modify{
+		ps.engines.WriteKV(storage.Modify{
 			Data: storage.Put{
 				Key:   data.Key,
 				Value: data.Val,
@@ -364,19 +364,19 @@ func TestApplySnap(t *testing.T) {
 	for newPs.snapshotState.StateType != snap.SnapshotApplied {
 
 	}
-	val, err := newPs.engine.ReadKV([]byte("1"))
+	val, err := newPs.engines.ReadKV([]byte("1"))
 	assert.Nil(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engine.ReadKV([]byte("2"))
+	val, err = newPs.engines.ReadKV([]byte("2"))
 	assert.Nil(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engine.ReadKV([]byte("3"))
+	val, err = newPs.engines.ReadKV([]byte("3"))
 	assert.Nil(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engine.ReadKV([]byte("4"))
+	val, err = newPs.engines.ReadKV([]byte("4"))
 	assert.Nil(t, err)
 	fmt.Println(string(val))
 	cleanUpData(ps)

@@ -9,11 +9,10 @@ import (
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
-	"log"
 )
 
 type peerStorage struct {
-	engine           *storage.Engines
+	engines          *storage.Engines
 	raftState        *raftstorepb.RaftLocalState
 	applyState       *raftstorepb.RaftApplyState
 	confState        *raftpb.ConfState
@@ -24,11 +23,11 @@ type peerStorage struct {
 func newPeerStorage(path string) *peerStorage {
 	// snapshotState and snapshotTryCount need not to init
 	ps := &peerStorage{
-		engine: storage.NewEngines(path+storage.KvPath, path+storage.MetaPath),
+		engines: storage.NewEngines(path+storage.KvPath, path+storage.MetaPath),
 	}
-	ps.raftState = meta.InitRaftLocalState(ps.engine)
-	ps.applyState = meta.InitRaftApplyState(ps.engine)
-	ps.confState = meta.InitConfState(ps.engine)
+	ps.raftState = meta.InitRaftLocalState(ps.engines)
+	ps.applyState = meta.InitRaftApplyState(ps.engines)
+	ps.confState = meta.InitConfState(ps.engines)
 	ps.snapshotState = &snap.SnapshotState{
 		StateType: snap.SnapshotToGen,
 	}
@@ -36,15 +35,15 @@ func newPeerStorage(path string) *peerStorage {
 }
 
 func (ps *peerStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
-	raftState := ps.raftState
-	if ps.isEmptyHardState(*ps.raftState.HardState) {
-		log.Printf("[Peer Storage]: local state %+v is empty", raftState)
-		return raftpb.HardState{}, raftpb.ConfState{}, nil
+	hs := raftpb.HardState{}
+	cs := raftpb.ConfState{}
+	if !raft.IsEmptyHardState(*ps.raftState.HardState) {
+		hs = *ps.raftState.HardState
 	}
-	if isEmptyConfState(*ps.confState) {
-		return *raftState.HardState, raftpb.ConfState{}, nil
+	if !isEmptyConfState(*ps.confState) {
+		cs = *ps.confState
 	}
-	return *raftState.HardState, *ps.confState, nil
+	return hs, cs, nil
 }
 
 func (ps *peerStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
@@ -56,7 +55,7 @@ func (ps *peerStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
 	entries := make([]raftpb.Entry, 0, entrySize)
 	for i := lo; i < hi; i++ {
 		key := meta.RaftLogEntryKey(i)
-		val, err := ps.engine.ReadMeta(key)
+		val, err := ps.engines.ReadMeta(key)
 		if err != nil {
 			return nil, err
 		}
@@ -81,18 +80,18 @@ func (ps *peerStorage) Entries(lo, hi, maxSize uint64) ([]raftpb.Entry, error) {
 
 func (ps *peerStorage) Term(i uint64) (uint64, error) {
 	// If index is truncated log.index
-	if i == ps.applyState.TruncatedState.Index {
-		return ps.applyState.TruncatedState.Term, nil
+	if i == ps.truncateIndex() {
+		return ps.truncateTerm(), nil
 	}
 	if err := ps.checkRange(i, i+1); err != nil {
 		return 0, err
 	}
-	if ps.applyState.TruncatedState.Term == ps.raftState.LastTerm ||
+	if ps.truncateTerm() == ps.raftState.LastTerm ||
 		i == ps.raftState.LastIndex {
 		return ps.raftState.LastTerm, nil
 	}
 	key := meta.RaftLogEntryKey(i)
-	val, err := ps.engine.ReadMeta(key)
+	val, err := ps.engines.ReadMeta(key)
 	if err != nil {
 		return 0, err
 	}
@@ -108,7 +107,7 @@ func (ps *peerStorage) LastIndex() (uint64, error) {
 }
 
 func (ps *peerStorage) FirstIndex() (uint64, error) {
-	return ps.applyState.TruncatedState.Index + 1, nil
+	return ps.truncateIndex() + 1, nil
 }
 
 func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
@@ -160,13 +159,20 @@ func (ps *peerStorage) doSnapshot() {
 		},
 	}
 
-	data := ps.engine.KVSnapshot()
-	snapshot.Data = data
+	snapshot.Data = ps.engines.KVSnapshot()
 	ps.snapshotState.Receiver <- snapshot
 }
 
 func (ps *peerStorage) AppliedIndex() uint64 {
 	return ps.applyState.ApplyIndex
+}
+
+func (ps *peerStorage) truncateIndex() uint64 {
+	return ps.applyState.TruncatedState.Index
+}
+
+func (ps *peerStorage) truncateTerm() uint64 {
+	return ps.applyState.TruncatedState.Term
 }
 
 // append the entries to raft log and update raftState
@@ -182,7 +188,7 @@ func (ps *peerStorage) appendAndUpdate(entries []raftpb.Entry) bool {
 	// some entries have been compacted already,
 	// so we should truncate entries
 	if localFirst > entries[0].Index {
-		truncatedIndex := ps.applyState.TruncatedState.Index
+		truncatedIndex := ps.truncateIndex()
 		entries = entries[truncatedIndex-entries[0].Index+1:]
 	}
 	var raftStateUpdated bool
@@ -253,7 +259,7 @@ func (ps *peerStorage) applySnapToDB(data []byte) {
 	ps.snapshotState.StateType = snap.SnapshotApplying
 	pairs := storage.Decode(data)
 	for _, pair := range pairs {
-		ps.engine.WriteKV(storage.PutData(pair.Key, pair.Val, true))
+		ps.engines.WriteKV(storage.PutData(pair.Key, pair.Val, true))
 	}
 	ps.snapshotState.StateType = snap.SnapshotApplied
 }
@@ -261,8 +267,7 @@ func (ps *peerStorage) applySnapToDB(data []byte) {
 func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
 	for _, entry := range entries {
 		key := meta.RaftLogEntryKey(entry.Index)
-		modify := storage.DeleteMeta(key, true)
-		if err := ps.engine.WriteMeta(modify); err != nil {
+		if err := ps.deleteMeta(key, &entry); err != nil {
 			return err
 		}
 	}
@@ -272,7 +277,7 @@ func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
 func (ps *peerStorage) raftLogEntriesWriteToDB(entries []raftpb.Entry) error {
 	for _, entry := range entries {
 		key := meta.RaftLogEntryKey(entry.Index)
-		if err := ps.doWriteToDB(key, &entry, true); err != nil {
+		if err := ps.putMeta(key, &entry); err != nil {
 			return err
 		}
 	}
@@ -280,31 +285,25 @@ func (ps *peerStorage) raftLogEntriesWriteToDB(entries []raftpb.Entry) error {
 }
 
 func (ps *peerStorage) raftLocalStateWriteToDB(localState *raftstorepb.RaftLocalState) error {
-	key := meta.RaftLocalStateKey()
-	if err := ps.doWriteToDB(key, localState, true); err != nil {
-		return err
-	}
-	return nil
+	return ps.putMeta(meta.RaftLocalStateKey(), localState)
 }
 
 func (ps *peerStorage) raftApplyStateWriteToDB(applyState *raftstorepb.RaftApplyState) error {
-	key := meta.RaftApplyStateKey()
-	if err := ps.doWriteToDB(key, applyState, true); err != nil {
-		return err
-	}
-	return nil
+	return ps.putMeta(meta.RaftApplyStateKey(), applyState)
 }
 
 func (ps *peerStorage) raftConfStateWriteToDB(confState *raftpb.ConfState) error {
-	return ps.doWriteToDB(meta.RaftConfStateKey(), confState, true)
+	return ps.putMeta(meta.RaftConfStateKey(), confState)
 }
 
-func (ps *peerStorage) doWriteToDB(key []byte, msg proto.Message, sync bool) error {
-	modify := storage.PutMeta(key, msg, sync)
-	if err := ps.engine.WriteMeta(modify); err != nil {
-		return err
-	}
-	return nil
+func (ps *peerStorage) putMeta(key []byte, msg proto.Message) error {
+	modify := storage.PutMeta(key, msg, true)
+	return ps.engines.WriteMeta(modify)
+}
+
+func (ps *peerStorage) deleteMeta(key []byte, msg proto.Message) error {
+	modify := storage.DeleteMeta(key, true)
+	return ps.engines.WriteMeta(modify)
 }
 
 func (ps *peerStorage) isHardStateChanged(recentRaftState raftpb.HardState) bool {
@@ -329,16 +328,12 @@ func (ps *peerStorage) checkRange(lo, hi uint64) error {
 		return errors.Errorf("Range error: low %d is greater than high %d", lo, hi)
 	} else if hi > ps.raftState.LastIndex+1 {
 		return errors.Errorf("Range error: high %d is out of bound", hi)
-	} else if lo <= ps.applyState.TruncatedState.Index {
+	} else if lo <= ps.truncateIndex() {
 		return raft.ErrCompacted
 	}
 	return nil
 }
 
 func (ps *peerStorage) isValidateSnapshot(snapshot raftpb.Snapshot) bool {
-	index := snapshot.Metadata.Index
-	if index < ps.applyState.TruncatedState.Index {
-		return false
-	}
-	return true
+	return snapshot.Metadata.Index >= ps.truncateIndex()
 }

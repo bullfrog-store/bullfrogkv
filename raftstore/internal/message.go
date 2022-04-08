@@ -21,3 +21,15 @@ func NewRaftCmdResponse(response *raftstorepb.Response) *raftstorepb.RaftCmdResp
 		Response: response,
 	}
 }
+
+func NewCompactCmdRequest(index, term uint64) *raftstorepb.RaftCmdRequest {
+	header := &raftstorepb.RaftRequestHeader{}
+	request := &raftstorepb.AdminRequest{
+		CmdType: raftstorepb.AdminCmdType_CompactLog,
+		CompactLog: &raftstorepb.CompactLogRequest{
+			CompactIndex: index,
+			CompactTerm:  term,
+		},
+	}
+	return NewRaftAdminCmdRequest(header, request)
+}

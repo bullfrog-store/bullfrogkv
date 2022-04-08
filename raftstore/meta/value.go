@@ -27,7 +27,7 @@ func GetRaftLocalState(engines *storage.Engines) (*raftstorepb.RaftLocalState, e
 func InitRaftLocalState(engines *storage.Engines) *raftstorepb.RaftLocalState {
 	raftState, err := GetRaftLocalState(engines)
 	if err != nil {
-		panic("raftLocalState parse failed")
+		panic(err)
 	}
 	return raftState
 }
@@ -52,7 +52,7 @@ func GetRaftApplyState(engines *storage.Engines) (*raftstorepb.RaftApplyState, e
 func InitRaftApplyState(engines *storage.Engines) *raftstorepb.RaftApplyState {
 	applyState, err := GetRaftApplyState(engines)
 	if err != nil {
-		panic("raftApplyState parse failed")
+		panic(err)
 	}
 	return applyState
 }
@@ -73,9 +73,9 @@ func GetRaftConfState(engines *storage.Engines) (*raftpb.ConfState, error) {
 }
 
 func InitConfState(engines *storage.Engines) *raftpb.ConfState {
-	cs, err := GetRaftConfState(engines)
+	confState, err := GetRaftConfState(engines)
 	if err != nil {
 		panic(err)
 	}
-	return cs
+	return confState
 }
