@@ -1,0 +1,11 @@
+[common]
+node_count = 3
+
+[route]
+serve_addr = "127.0.0.1:8080"
+grpc_addrs = ["127.0.0.1:6060", "127.0.0.1:6061", "127.0.0.1:6062"]
+
+[store]
+store_id = 1
+
+[raft]
