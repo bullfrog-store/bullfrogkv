@@ -36,9 +36,16 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 			ToPeer:   msg.To,
 		}
 		logger.Infof("node %d send msg: %+v", peerMsg.FromPeer, peerMsg.Message.String())
-		err := r.raftClient.Send(addr, peerMsg)
+
+		conn, ok := r.raftClient.GetRaftConn(addr)
+		if !ok {
+			go r.raftClient.DialAndSend(addr, peerMsg)
+			continue
+		}
+
+		err := conn.Send(peerMsg)
 		if err != nil {
-			// TODO: Handling grpc send failure
+			go r.raftClient.DialAndSend(addr, peerMsg)
 			continue
 		}
 	}

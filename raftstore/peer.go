@@ -96,7 +96,7 @@ func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
 }
 
 func (pr *peer) run() {
-	go pr.tick()
+	go pr.onTick()
 	go pr.handleRaftMsgs()
 	go pr.handleReadState()
 }

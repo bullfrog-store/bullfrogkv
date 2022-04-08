@@ -24,7 +24,7 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 			return err
 		}
 		rm := raftMsg(msg)
-		logger.Debugf("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
+		logger.Infof("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
 		s.msgc <- rm
 	}
 }

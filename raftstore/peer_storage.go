@@ -154,8 +154,9 @@ func (ps *peerStorage) doSnapshot() {
 	}
 	snapshot := &raftpb.Snapshot{
 		Metadata: raftpb.SnapshotMetadata{
-			Term:  term,
-			Index: idx,
+			ConfState: *ps.confState,
+			Term:      term,
+			Index:     idx,
 		},
 	}
 
