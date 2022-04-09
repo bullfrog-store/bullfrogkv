@@ -35,7 +35,7 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 			FromPeer: msg.From,
 			ToPeer:   msg.To,
 		}
-		logger.Infof("node %d send msg: %+v", peerMsg.FromPeer, peerMsg.Message.String())
+		logger.Debugf("node %d send msg: %+v", peerMsg.FromPeer, peerMsg.Message.String())
 
 		conn, ok := r.raftClient.GetRaftConn(addr)
 		if !ok {
@@ -46,7 +46,6 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 		err := conn.Send(peerMsg)
 		if err != nil {
 			go r.raftClient.DialAndSend(addr, peerMsg)
-			continue
 		}
 	}
 }

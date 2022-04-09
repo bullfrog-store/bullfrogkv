@@ -6,7 +6,6 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-// TODO: use NewRaftStore().pr.router.raftServer to register grpc server in main.go
 type RaftServer struct {
 	msgc chan<- raftpb.Message
 }
@@ -24,7 +23,7 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 			return err
 		}
 		rm := raftMsg(msg)
-		logger.Infof("[grpc] receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
+		logger.Debugf("receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
 		s.msgc <- rm
 	}
 }

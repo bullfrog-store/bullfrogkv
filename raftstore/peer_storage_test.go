@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bullfrogkv/config"
 	"bullfrogkv/raftstore/meta"
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/raftstore/snap"
@@ -37,7 +38,7 @@ func newTestPeerStorageFromEntries(t *testing.T, entries []raftpb.Entry) *peerSt
 	applyState.ApplyIndex = entries[len(entries)-1].Index
 	err := ps.raftLocalStateWriteToDB(ps.raftState)
 	require.Nil(t, err)
-	err = ps.raftLogEntriesWriteToDB(entries)
+	err = ps.appendRaftLogEntries(entries)
 	require.Nil(t, err)
 	err = ps.raftApplyStateWriteToDB(ps.applyState)
 	require.Nil(t, err)
@@ -275,6 +276,11 @@ func TestPeerStorageRestart(t *testing.T) {
 }
 
 func setToPebble(t *testing.T) *peerStorage {
+	config.GlobalConfig = &config.Config{
+		RaftConfig: config.RaftConfig{
+			SnapshotTryCount: 5,
+		},
+	}
 	entries := []raftpb.Entry{
 		newTestEntry(2, 3),
 		newTestEntry(2, 4),

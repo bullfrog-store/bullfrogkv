@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bullfrogkv/config"
 	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/internal"
 	"bullfrogkv/raftstore/raftstorepb"
@@ -11,22 +12,40 @@ import (
 	"go.etcd.io/etcd/raft/v3/quorum"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"math"
+	"net"
 	"time"
 )
 
-const (
-	defaultLogGCCountLimit    = 10
-	defaultCompactCheckPeriod = 100
-)
+var peerMap = map[uint64]string{}
 
-type readRequest struct {
-	readCtx  []byte
-	callback *internal.Callback
+func loadPeerMap(addrs []string) {
+	for peer, addr := range addrs {
+		peerMap[uint64(peer+1)] = addr
+	}
 }
 
-func (rr *readRequest) key() []byte {
-	return rr.readCtx[8:]
+func raftPeers() []raft.Peer {
+	rpeers := make([]raft.Peer, len(peerMap))
+	for i := range rpeers {
+		rpeers[i] = raft.Peer{ID: uint64(i + 1)}
+	}
+	return rpeers
+}
+
+type reader struct {
+	ctx []byte
+	cb  *internal.Callback
+}
+
+func (r *reader) timestamp() int64 {
+	return int64(binary.LittleEndian.Uint64(r.ctx))
+}
+
+func (r *reader) key() []byte {
+	return r.ctx[8:]
 }
 
 type peer struct {
@@ -35,7 +54,7 @@ type peer struct {
 	ps        *peerStorage
 	router    *router
 
-	readRequestCh   chan *readRequest
+	waitReadChannel chan *reader
 	readStateTable  map[string]raft.ReadState
 	readStateComing chan struct{}
 
@@ -47,42 +66,42 @@ type peer struct {
 	lastCompactedIdx uint64
 }
 
-func newPeer(id uint64, path string) *peer {
+func newPeer() *peer {
+	cfg := config.GlobalConfig
+	loadPeerMap(cfg.RouteConfig.GrpcAddrs)
+
+	bufferSize := cfg.RaftConfig.MaxSizePerMsg * 4
 	pr := &peer{
-		id:                id,
-		ps:                newPeerStorage(path),
-		readRequestCh:     make(chan *readRequest, 1024),
+		id:                cfg.StoreConfig.StoreId,
+		ps:                newPeerStorage(cfg.StoreConfig.DataPath),
+		waitReadChannel:   make(chan *reader, bufferSize),
 		readStateTable:    make(map[string]raft.ReadState),
 		readStateComing:   make(chan struct{}, 1),
-		raftMsgReceiver:   make(chan raftpb.Message, 1024),
-		compactionTimeout: defaultCompactCheckPeriod,
+		raftMsgReceiver:   make(chan raftpb.Message, bufferSize),
+		compactionTimeout: cfg.RaftConfig.CompactCheckPeriod,
 	}
-	pr.router = newRouter(peerMap[id], pr.raftMsgReceiver)
+	pr.router = newRouter(peerMap[pr.id], pr.raftMsgReceiver)
 	pr.lastCompactedIdx = pr.ps.truncateIndex()
 
 	c := &raft.Config{
-		ID:                        id,
-		ElectionTick:              10,
-		HeartbeatTick:             1,
-		Storage:                   pr.ps,
-		Applied:                   pr.ps.AppliedIndex(),
-		MaxSizePerMsg:             1024 * 1024,
-		MaxUncommittedEntriesSize: 1 << 30,
-		MaxInflightMsgs:           256,
-		PreVote:                   true,
+		ID:              pr.id,
+		ElectionTick:    cfg.RaftConfig.ElectionTick,
+		HeartbeatTick:   cfg.RaftConfig.HeartbeatTick,
+		Storage:         pr.ps,
+		Applied:         pr.ps.AppliedIndex(),
+		MaxSizePerMsg:   cfg.RaftConfig.MaxSizePerMsg,
+		MaxInflightMsgs: cfg.RaftConfig.MaxInflightMsgs,
+		PreVote:         true,
 	}
-	if pr.isInitialBootstrap() {
-		rpeers := make([]raft.Peer, len(peerMap))
-		for i := range rpeers {
-			rpeers[i] = raft.Peer{ID: uint64(i + 1)}
-		}
-		pr.raftGroup = raft.StartNode(c, rpeers)
+	if pr.isInitial() {
+		pr.raftGroup = raft.StartNode(c, raftPeers())
 		pr.ps.confState = pr.confState()
 		pr.ps.raftConfStateWriteToDB(pr.ps.confState)
 	} else {
 		pr.raftGroup = raft.RestartNode(c)
 	}
-	logger.Infof("etcd raft is started, node: %d", id)
+	logger.Infof("etcd raft is started, node: %d", pr.id)
+
 	pr.run()
 	return pr
 }
@@ -96,13 +115,34 @@ func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
 }
 
 func (pr *peer) run() {
+	go pr.serveGrpc(pr.id)
 	go pr.onTick()
 	go pr.handleRaftMsgs()
 	go pr.handleReadState()
 }
 
+func (pr *peer) serveGrpc(id uint64) {
+	lis, err := net.Listen("tcp", peerMap[id])
+	if err != nil {
+		panic(err)
+	}
+	logger.Infof("%d listen %v success\n", id, peerMap[id])
+	g := grpc.NewServer(
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 15 * time.Second,
+			Time:              5 * time.Second,
+			Timeout:           1 * time.Second,
+		}),
+	)
+	raftstorepb.RegisterMessageServer(g, pr.router.raftServer)
+	g.Serve(lis)
+}
+
 func (pr *peer) onTick() {
-	logger.Infof("peer drive run")
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
 		select {
@@ -115,7 +155,6 @@ func (pr *peer) onTick() {
 }
 
 func (pr *peer) handleRaftMsgs() {
-	logger.Infof("peer handle raft msgs")
 	for {
 		msgs := make([]raftpb.Message, 0)
 		select {
@@ -127,7 +166,9 @@ func (pr *peer) handleRaftMsgs() {
 			msgs = append(msgs, <-pr.raftMsgReceiver)
 		}
 		for _, msg := range msgs {
-			pr.raftGroup.Step(context.TODO(), msg)
+			if msg.To == pr.id {
+				pr.raftGroup.Step(context.TODO(), msg)
+			}
 		}
 	}
 }
@@ -153,7 +194,7 @@ func (pr *peer) onLogGCTask() {
 	appliedIdx := pr.ps.AppliedIndex()
 	firstIdx, _ := pr.ps.FirstIndex()
 	var compactIdx uint64
-	if appliedIdx > firstIdx && appliedIdx-firstIdx >= defaultLogGCCountLimit {
+	if appliedIdx > firstIdx && appliedIdx-firstIdx >= config.GlobalConfig.RaftConfig.LogGCCountLimit {
 		compactIdx = appliedIdx
 	} else {
 		return
@@ -171,7 +212,6 @@ func (pr *peer) onLogGCTask() {
 }
 
 func (pr *peer) handleReady(rd raft.Ready) {
-	logger.Infof("peer handle ready: %+v", rd)
 	pr.ps.saveReadyState(rd)
 	for _, state := range rd.ReadStates {
 		pr.readStateTable[string(state.RequestCtx)] = state
@@ -205,11 +245,11 @@ func (pr *peer) process(ent raftpb.Entry) {
 func (pr *peer) processRequest(request *raftstorepb.Request) {
 	switch request.CmdType {
 	case raftstorepb.CmdType_Put:
-		logger.Infof("apply CmdType_Put request: %+v", request.Put)
+		logger.Debugf("apply CmdType_Put request: %+v", request.Put)
 		modify := storage.PutData(request.Put.Key, request.Put.Value, true)
 		pr.ps.engines.WriteKV(modify)
 	case raftstorepb.CmdType_Delete:
-		logger.Infof("apply CmdType_Delete request: %+v", request.Delete)
+		logger.Debugf("apply CmdType_Delete request: %+v", request.Delete)
 		modify := storage.DeleteData(request.Delete.Key, true)
 		pr.ps.engines.WriteKV(modify)
 	}
@@ -235,19 +275,19 @@ func (pr *peer) gcRaftLog(start, end uint64) error {
 	if err != nil {
 		return err
 	}
-	return pr.ps.raftLogEntriesDeleteDB(entries)
+	return pr.ps.deleteRaftLogEntries(entries)
 }
 
 func (pr *peer) linearizableRead(key []byte) *internal.Callback {
-	readCtx := buildReadCtx(key)
+	ctx := buildReadCtx(key)
 	cb := internal.NewCallback()
-	rr := &readRequest{
-		readCtx:  readCtx,
-		callback: cb,
+	reader := &reader{
+		ctx: ctx,
+		cb:  cb,
 	}
-	logger.Infof("receive a read request: %+v", rr)
-	pr.readRequestCh <- rr
-	if err := pr.raftGroup.ReadIndex(context.TODO(), readCtx); err != nil {
+	logger.Debugf("receive a read request: %+v", reader)
+	pr.waitReadChannel <- reader
+	if err := pr.raftGroup.ReadIndex(context.TODO(), ctx); err != nil {
 		panic(err)
 	}
 	return cb
@@ -257,35 +297,37 @@ func (pr *peer) handleReadState() {
 	for {
 		select {
 		case <-pr.readStateComing:
-			var rr *readRequest
-			for len(pr.readRequestCh) > 0 {
-				rr = <-pr.readRequestCh
-				if _, ok := pr.readStateTable[string(rr.readCtx)]; ok {
+			var r *reader
+			size := len(pr.waitReadChannel)
+			for size > 0 {
+				r = <-pr.waitReadChannel
+				if _, ok := pr.readStateTable[string(r.ctx)]; ok {
 					break
 				}
+				if time.Duration(time.Now().UnixNano()-r.timestamp()) < 15*time.Second {
+					pr.waitReadChannel <- r
+				}
+				size--
 			}
-			state := pr.readStateTable[string(rr.readCtx)]
-			delete(pr.readStateTable, string(rr.readCtx))
-			logger.Infof("ReadState: %+v, ReadRequest: %+v", state, rr)
-			go pr.readApplied(state, rr)
+			state := pr.readStateTable[string(r.ctx)]
+			delete(pr.readStateTable, string(r.ctx))
+			logger.Debugf("ReadState: %+v, ReadRequest: %+v", state, r)
+			go pr.readApplied(state, r)
 		}
 	}
 }
 
-func (pr *peer) readApplied(state raft.ReadState, rr *readRequest) {
-	logger.Infof("wait for applied index >= state.Index")
+func (pr *peer) readApplied(state raft.ReadState, reader *reader) {
 	pr.waitAppliedAdvance(state.Index)
-	value, err := pr.ps.engines.ReadKV(rr.key())
+	value, err := pr.ps.engines.ReadKV(reader.key())
 	if err != nil {
 		if err != storage.ErrNotFound {
 			panic(err)
 		}
 	}
-	resp := &raftstorepb.Response{
-		Get: &raftstorepb.GetResponse{Value: value},
-	}
-	logger.Infof("%s get response successfully: %+v", string(rr.key()), resp.Get)
-	rr.callback.Done(internal.NewRaftCmdResponse(resp))
+	resp := internal.NewGetCmdResponse(value)
+	logger.Infof("%s get response successfully: %+v", string(reader.key()), resp.GetResponse())
+	reader.cb.Done(resp)
 }
 
 func (pr *peer) waitAppliedAdvance(index uint64) {
@@ -317,13 +359,6 @@ func (pr *peer) confState() *raftpb.ConfState {
 	}
 }
 
-func buildReadCtx(key []byte) []byte {
-	buf := make([]byte, 8)
-	ts := time.Now().UnixNano()
-	binary.LittleEndian.PutUint64(buf, uint64(ts))
-	return append(buf, key...)
-}
-
 func (pr *peer) term() uint64 {
 	return pr.raftGroup.Status().Term
 }
@@ -332,6 +367,13 @@ func (pr *peer) isLeader() bool {
 	return pr.raftGroup.Status().Lead == pr.id
 }
 
-func (pr *peer) isInitialBootstrap() bool {
+func (pr *peer) isInitial() bool {
 	return isEmptyConfState(*pr.ps.confState)
+}
+
+func buildReadCtx(key []byte) []byte {
+	buf := make([]byte, 8)
+	ts := time.Now().UnixNano()
+	binary.LittleEndian.PutUint64(buf, uint64(ts))
+	return append(buf, key...)
 }

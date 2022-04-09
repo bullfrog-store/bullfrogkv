@@ -1,10 +1,8 @@
-package main
+package server
 
 import (
-	"bullfrogkv/storage"
-	"errors"
+	"bullfrogkv/logger"
 	"github.com/gin-gonic/gin"
-	"log"
 	"net/http"
 )
 
@@ -17,7 +15,7 @@ type deleteReq struct {
 	Key string `json:"key"`
 }
 
-func (e *raftEngine) putKVHandle(c *gin.Context) {
+func (e *RaftEngine) putKVHandle(c *gin.Context) {
 	var data putReq
 	err := c.ShouldBindJSON(&data)
 	if err != nil {
@@ -38,22 +36,15 @@ func (e *raftEngine) putKVHandle(c *gin.Context) {
 	})
 }
 
-func (e *raftEngine) getKVHandle(c *gin.Context) {
+func (e *RaftEngine) getKVHandle(c *gin.Context) {
 	key := c.Query("key")
 	val, err := e.engine.Get(byteForm(key))
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		} else {
-			log.Println("get error:", err)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
-			return
-		}
+		logger.Warnf("get error:", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -63,7 +54,7 @@ func (e *raftEngine) getKVHandle(c *gin.Context) {
 	})
 }
 
-func (e *raftEngine) delKVHandle(c *gin.Context) {
+func (e *RaftEngine) delKVHandle(c *gin.Context) {
 	var data deleteReq
 	err := c.ShouldBindJSON(&data)
 	if err != nil {
@@ -73,7 +64,7 @@ func (e *raftEngine) delKVHandle(c *gin.Context) {
 	key := byteForm(data.Key)
 	err = e.engine.Delete(key)
 	if err != nil {
-		log.Println("del error:", err)
+		logger.Warnf("del error:", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": deleteFail,
 		})

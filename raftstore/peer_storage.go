@@ -1,6 +1,8 @@
 package raftstore
 
 import (
+	"bullfrogkv/config"
+	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/meta"
 	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/raftstore/snap"
@@ -111,6 +113,7 @@ func (ps *peerStorage) FirstIndex() (uint64, error) {
 }
 
 func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
+	logger.Infof("follower need snapshot, generating...")
 	var snapshot raftpb.Snapshot
 	if ps.snapshotState.StateType == snap.SnapshotGenerating {
 		select {
@@ -129,10 +132,9 @@ func (ps *peerStorage) Snapshot() (raftpb.Snapshot, error) {
 			}
 		}
 	}
-	if ps.snapshotTryCount >= 5 {
-		err := errors.Errorf("Failed to get snapshot after %d times", ps.snapshotTryCount)
+	if ps.snapshotTryCount >= config.GlobalConfig.RaftConfig.SnapshotTryCount {
 		ps.snapshotTryCount = 0
-		return snapshot, err
+		return snapshot, errors.Errorf("Failed to get snapshot after %d times", ps.snapshotTryCount)
 	}
 
 	ps.snapshotTryCount++
@@ -155,12 +157,13 @@ func (ps *peerStorage) doSnapshot() {
 	snapshot := &raftpb.Snapshot{
 		Metadata: raftpb.SnapshotMetadata{
 			ConfState: *ps.confState,
-			Term:      term,
 			Index:     idx,
+			Term:      term,
 		},
 	}
 
 	snapshot.Data = ps.engines.KVSnapshot()
+	logger.Infof("send snapshot")
 	ps.snapshotState.Receiver <- snapshot
 }
 
@@ -192,14 +195,8 @@ func (ps *peerStorage) appendAndUpdate(entries []raftpb.Entry) bool {
 		truncatedIndex := ps.truncateIndex()
 		entries = entries[truncatedIndex-entries[0].Index+1:]
 	}
-	var raftStateUpdated bool
-	if ps.raftState.LastTerm == entries[len(entries)-1].Term &&
-		ps.raftState.LastIndex == entries[len(entries)-1].Index {
-		raftStateUpdated = false
-	} else {
-		raftStateUpdated = true
-	}
-	ps.raftLogEntriesWriteToDB(entries)
+
+	ps.appendRaftLogEntries(entries)
 	localLastIndex, _ := ps.LastIndex()
 	if localLastIndex > lastIndex {
 		var shouldDeleteEntries []raftpb.Entry
@@ -208,48 +205,54 @@ func (ps *peerStorage) appendAndUpdate(entries []raftpb.Entry) bool {
 				Index: i,
 			})
 		}
-		ps.raftLogEntriesDeleteDB(shouldDeleteEntries)
+		ps.deleteRaftLogEntries(shouldDeleteEntries)
 	}
-	ps.raftState.LastTerm = entries[len(entries)-1].Term
-	ps.raftState.LastIndex = entries[len(entries)-1].Index
-	return raftStateUpdated
+
+	needPersist := false
+	if ps.raftState.LastTerm != entries[len(entries)-1].Term ||
+		ps.raftState.LastIndex != entries[len(entries)-1].Index {
+		ps.raftState.LastTerm = entries[len(entries)-1].Term
+		ps.raftState.LastIndex = entries[len(entries)-1].Index
+		needPersist = true
+	}
+	return needPersist
 }
 
 func (ps *peerStorage) applySnapshot(snapshot raftpb.Snapshot) bool {
-	var raftStateUpdated bool
-	if ps.raftState.LastTerm == snapshot.Metadata.Term &&
-		ps.raftState.LastIndex == snapshot.Metadata.Index {
-		raftStateUpdated = false
-	} else {
-		raftStateUpdated = true
+	needPersist := false
+	if ps.raftState.LastTerm != snapshot.Metadata.Term ||
+		ps.raftState.LastIndex != snapshot.Metadata.Index {
+		ps.raftState.LastIndex = snapshot.Metadata.Index
+		ps.raftState.LastTerm = snapshot.Metadata.Term
+		needPersist = true
 	}
-	ps.raftState.LastIndex = snapshot.Metadata.Index
-	ps.raftState.LastTerm = snapshot.Metadata.Term
+
 	ps.applyState.ApplyIndex = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Index = snapshot.Metadata.Index
 	ps.applyState.TruncatedState.Term = snapshot.Metadata.Term
-	//ps.snapshotState.StateType = snap.SnapshotApplying
-	// persist
 	ps.raftApplyStateWriteToDB(ps.applyState)
+
+	ps.confState = &snapshot.Metadata.ConfState
+	ps.raftConfStateWriteToDB(ps.confState)
+
 	go ps.applySnapToDB(snapshot.Data)
-	return raftStateUpdated
+	return needPersist
 }
 
 func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 	// make sure ready.Snapshot is not nil
-	var raftStateUpdatedAfterApply bool
+	needPersist := false
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		raftStateUpdatedAfterApply = ps.applySnapshot(rd.Snapshot)
+		needPersist = ps.applySnapshot(rd.Snapshot)
 	}
-	raftStateUpdatedAfterAppend := ps.appendAndUpdate(rd.Entries)
-	if !ps.isEmptyHardState(rd.HardState) {
+	needPersist = needPersist || ps.appendAndUpdate(rd.Entries)
+	if !raft.IsEmptyHardState(rd.HardState) {
 		ps.raftState.HardState = &rd.HardState
-		raftStateUpdatedAfterAppend = true
+		needPersist = true
 	}
 	// persist raft local state once it is changed
-	if raftStateUpdatedAfterApply || raftStateUpdatedAfterAppend {
-		err := ps.raftLocalStateWriteToDB(ps.raftState)
-		if err != nil {
+	if needPersist {
+		if err := ps.raftLocalStateWriteToDB(ps.raftState); err != nil {
 			return err
 		}
 	}
@@ -257,6 +260,7 @@ func (ps *peerStorage) saveReadyState(rd raft.Ready) error {
 }
 
 func (ps *peerStorage) applySnapToDB(data []byte) {
+	logger.Infof("apply snapshot")
 	ps.snapshotState.StateType = snap.SnapshotApplying
 	pairs := storage.Decode(data)
 	for _, pair := range pairs {
@@ -265,7 +269,7 @@ func (ps *peerStorage) applySnapToDB(data []byte) {
 	ps.snapshotState.StateType = snap.SnapshotApplied
 }
 
-func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
+func (ps *peerStorage) deleteRaftLogEntries(entries []raftpb.Entry) error {
 	for _, entry := range entries {
 		key := meta.RaftLogEntryKey(entry.Index)
 		if err := ps.deleteMeta(key, &entry); err != nil {
@@ -275,7 +279,7 @@ func (ps *peerStorage) raftLogEntriesDeleteDB(entries []raftpb.Entry) error {
 	return nil
 }
 
-func (ps *peerStorage) raftLogEntriesWriteToDB(entries []raftpb.Entry) error {
+func (ps *peerStorage) appendRaftLogEntries(entries []raftpb.Entry) error {
 	for _, entry := range entries {
 		key := meta.RaftLogEntryKey(entry.Index)
 		if err := ps.putMeta(key, &entry); err != nil {
@@ -305,23 +309,6 @@ func (ps *peerStorage) putMeta(key []byte, msg proto.Message) error {
 func (ps *peerStorage) deleteMeta(key []byte, msg proto.Message) error {
 	modify := storage.DeleteMeta(key, true)
 	return ps.engines.WriteMeta(modify)
-}
-
-func (ps *peerStorage) isHardStateChanged(recentRaftState raftpb.HardState) bool {
-	if ps.raftState.HardState.Term == recentRaftState.Term && ps.raftState.HardState.Vote == recentRaftState.Vote &&
-		ps.raftState.HardState.Commit == recentRaftState.Commit {
-		return false
-	}
-	return true
-}
-
-func (ps *peerStorage) isEmptyHardState(hardState raftpb.HardState) bool {
-	emptyHardState := raftpb.HardState{}
-	if hardState.Term == emptyHardState.Term && hardState.Vote == emptyHardState.Vote &&
-		hardState.Commit == emptyHardState.Commit {
-		return true
-	}
-	return false
 }
 
 func (ps *peerStorage) checkRange(lo, hi uint64) error {

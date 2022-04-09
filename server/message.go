@@ -1,4 +1,4 @@
-package main
+package server
 
 const (
 	writeSuccess  = "write success"
