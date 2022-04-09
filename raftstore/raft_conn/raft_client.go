@@ -1,7 +1,6 @@
 package raft_conn
 
 import (
-	"bullfrogkv/logger"
 	"bullfrogkv/raftstore/raftstorepb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -13,6 +12,11 @@ import (
 type RaftClient struct {
 	sync.RWMutex
 	conns map[string]*raftConn
+}
+
+type ToSendReq struct {
+	Msg  *raftstorepb.RaftMsgReq
+	Addr string
 }
 
 type raftConn struct {
@@ -28,53 +32,32 @@ func NewRaftClient() *RaftClient {
 	}
 }
 
-func (rc *RaftClient) GetRaftConn(addr string) (*raftConn, error) {
+func (rc *RaftClient) GetRaftConn(addr string) (*raftConn, bool) {
 	// grpc connection already established
 	rc.RLock()
+	defer rc.RUnlock()
 	conn, ok := rc.conns[addr]
-	if ok {
-		rc.RUnlock()
-		return conn, nil
-	}
-	rc.RUnlock()
-	//establish grpc connection
-	newConn, err := newRaftConn(addr)
-	if err != nil {
-		return nil, err
-	}
-	rc.Lock()
-	defer rc.Unlock()
-	if oldConn, ok := rc.conns[addr]; ok {
-		oldConn.cancel()
-	}
-	rc.conns[addr] = newConn
-	return newConn, nil
+	return conn, ok
 }
 
-func (rc *RaftClient) Send(addr string, msg *raftstorepb.RaftMsgReq) error {
-	conn, err := rc.GetRaftConn(addr)
+func (rc *RaftClient) DialAndSend(addr string, msg *raftstorepb.RaftMsgReq) {
+	conn, err := rc.newRaftConn(addr)
 	if err != nil {
-		return err
+		return
 	}
+
 	err = conn.Send(msg)
 	if err == nil {
-		return nil
+		if oldConn, ok := rc.GetRaftConn(addr); ok {
+			oldConn.Stop()
+		}
+		rc.Lock()
+		rc.conns[addr] = conn
+		rc.Unlock()
 	}
-	logger.Warnf("meet error when message send: %+v", err)
-
-	rc.Lock()
-	conn.Stop()
-	delete(rc.conns, addr)
-	rc.Unlock()
-
-	conn, err = rc.GetRaftConn(addr)
-	if err != nil {
-		return err
-	}
-	return conn.Send(msg)
 }
 
-func newRaftConn(addr string) (*raftConn, error) {
+func (rc *RaftClient) newRaftConn(addr string) (*raftConn, error) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure(),
 		// reconnect after disconnection
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -92,11 +75,12 @@ func newRaftConn(addr string) (*raftConn, error) {
 		cancel()
 		return nil, err
 	}
-	return &raftConn{
-		cancel: cancel,
-		ctx:    ctx,
+	c := &raftConn{
 		stream: stream,
-	}, nil
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	return c, nil
 }
 
 func (c *raftConn) Send(msg *raftstorepb.RaftMsgReq) error {
