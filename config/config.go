@@ -19,6 +19,7 @@ const (
 	defaultLogGCCountLimit    = 100
 	defaultCompactCheckPeriod = 100 // check compaction per 10s (CompactCheckPeriod * 100ms)
 	defaultSnapshotTryCount   = 5
+
 )
 
 type Config struct {
