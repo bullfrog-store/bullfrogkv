@@ -2,23 +2,43 @@ package internal
 
 import "bullfrogkv/raftstore/raftstorepb"
 
-func NewRaftCmdRequest(header *raftstorepb.RaftRequestHeader, request *raftstorepb.Request) *raftstorepb.RaftCmdRequest {
+func NewGetCmdResponse(value []byte) *raftstorepb.RaftCmdResponse {
+	header := &raftstorepb.RaftResponseHeader{}
+	resp := &raftstorepb.Response{
+		Get: &raftstorepb.GetResponse{Value: value},
+	}
+	return &raftstorepb.RaftCmdResponse{
+		Header:   header,
+		Response: resp,
+	}
+}
+
+func NewPutCmdRequest(key, value []byte) *raftstorepb.RaftCmdRequest {
+	header := &raftstorepb.RaftRequestHeader{}
+	req := &raftstorepb.Request{
+		CmdType: raftstorepb.CmdType_Put,
+		Put: &raftstorepb.PutRequest{
+			Key:   key,
+			Value: value,
+		},
+	}
 	return &raftstorepb.RaftCmdRequest{
 		Header:  header,
-		Request: request,
+		Request: req,
 	}
 }
 
-func NewRaftAdminCmdRequest(header *raftstorepb.RaftRequestHeader, request *raftstorepb.AdminRequest) *raftstorepb.RaftCmdRequest {
+func NewDeleteCmdRequest(key []byte) *raftstorepb.RaftCmdRequest {
+	header := &raftstorepb.RaftRequestHeader{}
+	req := &raftstorepb.Request{
+		CmdType: raftstorepb.CmdType_Delete,
+		Delete: &raftstorepb.DeleteRequest{
+			Key: key,
+		},
+	}
 	return &raftstorepb.RaftCmdRequest{
-		Header:       header,
-		AdminRequest: request,
-	}
-}
-
-func NewRaftCmdResponse(response *raftstorepb.Response) *raftstorepb.RaftCmdResponse {
-	return &raftstorepb.RaftCmdResponse{
-		Response: response,
+		Header:  header,
+		Request: req,
 	}
 }
 
@@ -31,5 +51,8 @@ func NewCompactCmdRequest(index, term uint64) *raftstorepb.RaftCmdRequest {
 			CompactTerm:  term,
 		},
 	}
-	return NewRaftAdminCmdRequest(header, request)
+	return &raftstorepb.RaftCmdRequest{
+		Header:       header,
+		AdminRequest: request,
+	}
 }

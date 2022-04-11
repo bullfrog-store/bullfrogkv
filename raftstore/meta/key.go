@@ -10,27 +10,12 @@ const (
 )
 
 func buildRaftLogEntryKey(prefix byte, index uint64) []byte {
-	key := make([]byte, 9)
-	key[0] = prefix
+	key := buildRaftMetaKey(prefix)
 	binary.BigEndian.PutUint64(key[1:], index)
 	return key
 }
 
-func buildRaftLocalStateKey(prefix byte) []byte {
-	key := make([]byte, 9)
-	key[0] = prefix
-	// To ensure that the key length is consistent, we set aside 8 bytes here.
-	return key
-}
-
-func buildRaftApplyStateKey(prefix byte) []byte {
-	key := make([]byte, 9)
-	key[0] = prefix
-	// To ensure that the key length is consistent, we set aside 8 bytes here.
-	return key
-}
-
-func buildRaftConfStateKey(prefix byte) []byte {
+func buildRaftMetaKey(prefix byte) []byte {
 	key := make([]byte, 9)
 	key[0] = prefix
 	// To ensure that the key length is consistent, we set aside 8 bytes here.
@@ -42,13 +27,13 @@ func RaftLogEntryKey(index uint64) []byte {
 }
 
 func RaftLocalStateKey() []byte {
-	return buildRaftLocalStateKey(RaftLocalStatePrefix)
+	return buildRaftMetaKey(RaftLocalStatePrefix)
 }
 
 func RaftApplyStateKey() []byte {
-	return buildRaftApplyStateKey(RaftApplyStatePrefix)
+	return buildRaftMetaKey(RaftApplyStatePrefix)
 }
 
 func RaftConfStateKey() []byte {
-	return buildRaftConfStateKey(RaftConfStatePrefix)
+	return buildRaftMetaKey(RaftConfStatePrefix)
 }

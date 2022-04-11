@@ -4,6 +4,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+var GlobalConfig *Config
+
 // default value for config
 const (
 	defaultLogLevel = "info"
@@ -16,6 +18,8 @@ const (
 	defaultMaxInflightMsgs    = 256
 	defaultLogGCCountLimit    = 100
 	defaultCompactCheckPeriod = 100 // check compaction per 10s (CompactCheckPeriod * 100ms)
+	defaultSnapshotTryCount   = 5
+
 )
 
 type Config struct {
@@ -49,18 +53,18 @@ type RaftConfig struct {
 	HeartbeatTick      int    `toml:"heartbeat_tick"`
 	MaxSizePerMsg      uint64 `toml:"max_size_per_msg"`
 	MaxInflightMsgs    int    `toml:"max_inflight_msgs"`
-	LogGCCountLimit    int    `toml:"log_gc_count_limit"`
+	LogGCCountLimit    uint64 `toml:"log_gc_count_limit"`
 	CompactCheckPeriod int    `toml:"compact_check_period"`
+	SnapshotTryCount   int    `toml:"SnapshotTryCount"`
 }
 
-func LoadConfigFile(path string) *Config {
-	c := &Config{}
-	_, err := toml.DecodeFile(path, &c)
+func LoadConfigFile(path string) {
+	GlobalConfig = &Config{}
+	_, err := toml.DecodeFile(path, &GlobalConfig)
 	if err != nil {
 		panic(err)
 	}
-	ensureDefault(c)
-	return c
+	ensureDefault(GlobalConfig)
 }
 
 func validate(c *Config) {
@@ -113,5 +117,8 @@ func ensureDefault(c *Config) {
 	}
 	if c.RaftConfig.CompactCheckPeriod == 0 {
 		c.RaftConfig.CompactCheckPeriod = defaultCompactCheckPeriod
+	}
+	if c.RaftConfig.SnapshotTryCount == 0 {
+		c.RaftConfig.SnapshotTryCount = defaultSnapshotTryCount
 	}
 }

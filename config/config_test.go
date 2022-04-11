@@ -6,6 +6,6 @@ import (
 )
 
 func TestLoadConfigFile(t *testing.T) {
-	config := LoadConfigFile("./config_example.toml")
-	log.Printf("%+v", config)
+	LoadConfigFile("./config_example.toml")
+	log.Printf("%+v", GlobalConfig)
 }

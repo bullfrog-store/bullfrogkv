@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 )
 
 type (
@@ -53,6 +54,23 @@ func NewLogger(w io.Writer, prefix string) *Logger {
 
 func GlobalLogger() *log.Logger {
 	return _log._log
+}
+
+func SetLogLevel(level string) {
+	l := LogLevelInfo
+	switch strings.ToLower(level) {
+	case "debug":
+		l = LogLevelDebug
+	case "info":
+		l = LogLevelInfo
+	case "warn":
+		l = LogLevelWarn
+	case "error":
+		l = LogLevelError
+	case "fatal":
+		l = LogLevelFatal
+	}
+	SetLevel(l)
 }
 
 func SetLevel(level LogLevel) {

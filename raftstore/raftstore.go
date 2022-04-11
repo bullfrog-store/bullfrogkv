@@ -2,13 +2,8 @@ package raftstore
 
 import (
 	"bullfrogkv/raftstore/internal"
-	"bullfrogkv/raftstore/raftstorepb"
 	"bullfrogkv/storage"
 	"errors"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
-	"log"
-	"net"
 	"time"
 )
 
@@ -16,56 +11,17 @@ var (
 	ErrLostReadResponse = errors.New("it lost read response, retry read")
 )
 
-var peerMap = map[uint64]string{
-	1: "127.0.0.1:6060", // rpc port
-	2: "127.0.0.1:6061",
-	3: "127.0.0.1:6062",
-}
-
-var enforcementPolicy = keepalive.EnforcementPolicy{
-	MinTime:             5 * time.Second,
-	PermitWithoutStream: true,
-}
-
-var serverParameters = keepalive.ServerParameters{
-	MaxConnectionIdle: 15 * time.Second,
-	Time:              5 * time.Second,
-	Timeout:           1 * time.Second,
-}
-
 type RaftStore struct {
 	pr *peer
 }
 
-func NewRaftStore(storeId uint64, dataPath string) *RaftStore {
-	rs := &RaftStore{pr: newPeer(storeId, dataPath)}
-	go rs.serveGrpc(storeId)
+func NewRaftStore() *RaftStore {
+	rs := &RaftStore{pr: newPeer()}
 	return rs
 }
 
-func (rs *RaftStore) serveGrpc(id uint64) {
-	lis, err := net.Listen("tcp", peerMap[id])
-	if err != nil {
-		panic(err)
-	}
-	log.Printf("%d listen %v success\n", id, peerMap[id])
-	g := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(enforcementPolicy), grpc.KeepaliveParams(serverParameters))
-	raftstorepb.RegisterMessageServer(g, rs.pr.router.raftServer)
-	g.Serve(lis)
-}
-
-func (rs *RaftStore) Set(key []byte, value []byte) error {
-	header := &raftstorepb.RaftRequestHeader{
-		Term: rs.pr.term(),
-	}
-	req := &raftstorepb.Request{
-		CmdType: raftstorepb.CmdType_Put,
-		Put: &raftstorepb.PutRequest{
-			Key:   key,
-			Value: value,
-		},
-	}
-	cmd := internal.NewRaftCmdRequest(header, req)
+func (rs *RaftStore) Set(key, value []byte) error {
+	cmd := internal.NewPutCmdRequest(key, value)
 	return rs.pr.propose(cmd)
 }
 
@@ -83,15 +39,6 @@ func (rs *RaftStore) Get(key []byte) ([]byte, error) {
 }
 
 func (rs *RaftStore) Delete(key []byte) error {
-	header := &raftstorepb.RaftRequestHeader{
-		Term: rs.pr.term(),
-	}
-	req := &raftstorepb.Request{
-		CmdType: raftstorepb.CmdType_Delete,
-		Delete: &raftstorepb.DeleteRequest{
-			Key: key,
-		},
-	}
-	cmd := internal.NewRaftCmdRequest(header, req)
+	cmd := internal.NewDeleteCmdRequest(key)
 	return rs.pr.propose(cmd)
 }
