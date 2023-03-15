@@ -20,6 +20,8 @@ type Delete struct {
 func PutMeta(key []byte, msg proto.Message, sync bool) Modify {
 	value, err := proto.Marshal(msg)
 	if err != nil {
+		// FIXME: handle the error more elegantly.
+		// However, it's an unexpected error.
 		panic(err)
 	}
 	return Modify{

@@ -22,13 +22,12 @@ func (s *RaftServer) RaftMessage(stream raftstorepb.Message_RaftMessageServer) e
 		if err != nil {
 			return err
 		}
-		rm := raftMsg(msg)
+		rm := raftmsg(msg)
 		logger.Debugf("receive msg from %d, msg: %+v", msg.FromPeer, rm.String())
 		s.msgc <- rm
 	}
 }
 
-// raftMsg TODO: rename RaftMsgReq
-func raftMsg(msg *raftstorepb.RaftMsgReq) raftpb.Message {
+func raftmsg(msg *raftstorepb.RaftMsgReq) raftpb.Message {
 	return *msg.Message
 }

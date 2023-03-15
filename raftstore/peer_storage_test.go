@@ -8,7 +8,6 @@ import (
 	"bullfrogkv/storage"
 	"fmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"testing"
@@ -16,19 +15,23 @@ import (
 )
 
 const (
-	enginePath = "../test_data"
+	testPeerStoragePath = "../testdata"
 )
 
-func newTestPeerStorage() *peerStorage {
-	return newPeerStorage(enginePath)
+func newTestPeerStorage() (*peerStorage, error) {
+	return newPeerStorage(testPeerStoragePath)
 }
 
-func newTestPsWithPath(path string) *peerStorage {
+func newTestPeerStorageWithPath(path string) (*peerStorage, error) {
 	return newPeerStorage(path)
 }
 
-func newTestPeerStorageFromEntries(t *testing.T, entries []raftpb.Entry) *peerStorage {
-	ps := newTestPeerStorage()
+func newTestPeerStorageFromEntries(entries []raftpb.Entry) (*peerStorage, error) {
+	ps, err := newTestPeerStorage()
+	if err != nil {
+		return nil, err
+	}
+
 	ps.appendAndUpdate(entries[1:])
 	applyState := ps.applyState
 	applyState.TruncatedState = &raftstorepb.RaftTruncatedState{
@@ -36,19 +39,20 @@ func newTestPeerStorageFromEntries(t *testing.T, entries []raftpb.Entry) *peerSt
 		Index: entries[0].Index,
 	}
 	applyState.ApplyIndex = entries[len(entries)-1].Index
-	err := ps.raftLocalStateWriteToDB(ps.raftState)
-	require.Nil(t, err)
-	err = ps.appendRaftLogEntries(entries)
-	require.Nil(t, err)
-	err = ps.raftApplyStateWriteToDB(ps.applyState)
-	require.Nil(t, err)
-	return ps
+	if err = ps.writeRaftLocalState(ps.raftState); err != nil {
+		return nil, err
+	}
+	if err = ps.appendRaftLogEntries(entries); err != nil {
+		return nil, err
+	}
+	if err = ps.writeRaftApplyState(ps.applyState); err != nil {
+		return nil, err
+	}
+	return ps, nil
 }
 
-func cleanUpData(ps *peerStorage) {
-	if err := ps.engines.Destroy(); err != nil {
-		panic(err)
-	}
+func cleanupData(ps *peerStorage) error {
+	return ps.engine.Destroy()
 }
 
 func newTestEntry(term, index uint64) raftpb.Entry {
@@ -76,14 +80,16 @@ func TestPeerStorageTerm(t *testing.T) {
 		{5, 5, nil},
 	}
 	for _, testData := range testDatas {
-		ps := newTestPeerStorageFromEntries(t, entries)
+		ps, err := newTestPeerStorageFromEntries(entries)
+		assert.NoError(t, err)
+
 		term, err := ps.Term(testData.index)
 		if err != nil {
 			assert.Equal(t, testData.err, err)
 		} else {
 			assert.Equal(t, testData.term, term)
 		}
-		cleanUpData(ps)
+		assert.NoError(t, cleanupData(ps))
 	}
 }
 
@@ -93,11 +99,14 @@ func TestPeerStorageFirstIndex(t *testing.T) {
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
 	}
-	ps := newTestPeerStorageFromEntries(t, entries)
+	ps, err := newTestPeerStorageFromEntries(entries)
+	assert.NoError(t, err)
+
 	firstIndex, err := ps.FirstIndex()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, uint64(4), firstIndex)
-	cleanUpData(ps)
+
+	assert.NoError(t, cleanupData(ps))
 }
 
 func TestPeerStorageLastIndex(t *testing.T) {
@@ -106,11 +115,14 @@ func TestPeerStorageLastIndex(t *testing.T) {
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
 	}
-	ps := newTestPeerStorageFromEntries(t, entries)
+	ps, err := newTestPeerStorageFromEntries(entries)
+	assert.NoError(t, err)
+
 	lastIndex, err := ps.LastIndex()
-	assert.Nil(t, err)
+	assert.NoError(t, err)
 	assert.Equal(t, uint64(5), lastIndex)
-	cleanUpData(ps)
+
+	assert.NoError(t, cleanupData(ps))
 }
 
 func TestPeerStorageEntries(t *testing.T) {
@@ -136,17 +148,20 @@ func TestPeerStorageEntries(t *testing.T) {
 			newTestEntry(7, 7),
 		}, nil},
 	}
-	const maxSize = 0
+
 	for _, testData := range testDatas {
-		ps := newTestPeerStorageFromEntries(t, entries)
+		ps, err := newTestPeerStorageFromEntries(entries)
+		assert.NoError(t, err)
+
 		// truncated.Index = 3, firstIndex = 4, lastIndex = 7,
-		ents, err := ps.Entries(testData.lo, testData.hi, maxSize)
+		ents, err := ps.Entries(testData.lo, testData.hi, 0)
 		if err != nil {
 			assert.Equal(t, testData.err, err)
 		} else {
 			assert.Equal(t, testData.ents, ents)
 		}
-		cleanUpData(ps)
+
+		assert.NoError(t, cleanupData(ps))
 	}
 }
 
@@ -156,10 +171,13 @@ func TestPeerStorageAppliedIndex(t *testing.T) {
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
 	}
-	ps := newTestPeerStorageFromEntries(t, entries)
-	defer cleanUpData(ps)
-	applyIndex := ps.AppliedIndex()
+	ps, err := newTestPeerStorageFromEntries(entries)
+	assert.NoError(t, err)
+
+	applyIndex := ps.appliedIndex()
 	assert.Equal(t, uint64(5), applyIndex)
+
+	assert.NoError(t, cleanupData(ps))
 }
 
 func TestPeerStorageAppendAndUpdate(t *testing.T) {
@@ -236,30 +254,36 @@ func TestPeerStorageAppendAndUpdate(t *testing.T) {
 		},
 	}
 	for _, testData := range testDatas {
-		ps := newTestPeerStorageFromEntries(t, entries)
+		ps, err := newTestPeerStorageFromEntries(entries)
+		assert.NoError(t, err)
+
 		ps.appendAndUpdate(testData.append)
-		const maxSize = 0
 		firstIndex, _ := ps.FirstIndex()
 		lastIndex, _ := ps.LastIndex()
-		result, err := ps.Entries(firstIndex, lastIndex+1, maxSize)
-		assert.Nil(t, err)
+		result, err := ps.Entries(firstIndex, lastIndex+1, 0)
+		assert.NoError(t, err)
 		assert.Equal(t, testData.result, result)
-		cleanUpData(ps)
+
+		assert.NoError(t, cleanupData(ps))
 	}
 }
 
 func TestPeerStorageRestart(t *testing.T) {
+	var err error
 	entries := []raftpb.Entry{
 		newTestEntry(3, 3),
 		newTestEntry(4, 4),
 		newTestEntry(5, 5),
 	}
 	// Start peer storage with given entries
-	ps := newTestPeerStorageFromEntries(t, entries)
-	assert.Nil(t, ps.engines.Close())
+	ps, err := newTestPeerStorageFromEntries(entries)
+	assert.NoError(t, err)
+	assert.NoError(t, ps.engine.Close())
+
 	// Restart peer storage without given entries
 	time.Sleep(1)
-	ps = newTestPeerStorage()
+	ps, err = newTestPeerStorage()
+	assert.NoError(t, err)
 	assert.Equal(t, uint64(5), ps.raftState.LastTerm)
 	assert.Equal(t, uint64(5), ps.raftState.LastIndex)
 	assert.Equal(t, uint64(5), ps.applyState.ApplyIndex)
@@ -267,12 +291,14 @@ func TestPeerStorageRestart(t *testing.T) {
 	assert.Equal(t, uint64(3), ps.applyState.TruncatedState.Index)
 	for index := 3; index <= 5; index++ {
 		key := meta.RaftLogEntryKey(uint64(index))
-		val, err := ps.engines.ReadMeta(key)
-		assert.Nil(t, err)
+		val, err := ps.engine.ReadMeta(key)
+		assert.NoError(t, err)
 		var entry raftpb.Entry
-		assert.Nil(t, entry.Unmarshal(val))
+		assert.NoError(t, entry.Unmarshal(val))
 		assert.Equal(t, newTestEntry(uint64(index), uint64(index)), entry)
 	}
+
+	assert.NoError(t, cleanupData(ps))
 }
 
 func setToPebble(t *testing.T) *peerStorage {
@@ -287,7 +313,8 @@ func setToPebble(t *testing.T) *peerStorage {
 		newTestEntry(2, 5),
 		newTestEntry(2, 6),
 	}
-	ps := newTestPeerStorageFromEntries(t, entries)
+	ps, err := newTestPeerStorageFromEntries(entries)
+	assert.NoError(t, err)
 
 	testDatas := []struct {
 		Key []byte
@@ -312,19 +339,20 @@ func setToPebble(t *testing.T) *peerStorage {
 	}
 
 	for _, data := range testDatas {
-		ps.engines.WriteKV(storage.Modify{
+		assert.NoError(t, ps.engine.WriteData(storage.Modify{
 			Data: storage.Put{
 				Key:   data.Key,
 				Value: data.Val,
 				Sync:  true,
 			},
-		})
+		}))
 	}
 	return ps
 }
 
 func TestSetToPebble(t *testing.T) {
-	setToPebble(t)
+	ps := setToPebble(t)
+	assert.NoError(t, cleanupData(ps))
 }
 
 func TestSnapshot(t *testing.T) {
@@ -341,10 +369,12 @@ func TestSnapshot(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 	fmt.Println(snapshot.Metadata)
-	ss := storage.Decode(snapshot.Data)
+	ss, err := storage.DeserializeMulti(snapshot.Data)
+	assert.NoError(t, err)
 	for _, s := range ss {
-		fmt.Println(string(s.Key), ":", string(s.Val))
+		fmt.Println(string(s.Key), ":", string(s.Value))
 	}
+	assert.NoError(t, cleanupData(ps))
 }
 
 func TestApplySnap(t *testing.T) {
@@ -365,26 +395,27 @@ func TestApplySnap(t *testing.T) {
 	//	fmt.Println(string(s.Key), ":", string(s.Val))
 	//}
 
-	newPs := newTestPsWithPath("../test_data_new")
-	newPs.applySnapshot(snapshot)
-	for newPs.snapshotState.StateType != snap.SnapshotApplied {
+	newps, err := newTestPeerStorageWithPath("../testdata2")
+	assert.NoError(t, err)
+	newps.applySnapshot(snapshot)
+	for newps.snapshotState.StateType != snap.SnapshotApplied {
 
 	}
-	val, err := newPs.engines.ReadKV([]byte("1"))
-	assert.Nil(t, err)
+	val, err := newps.engine.ReadData([]byte("1"))
+	assert.NoError(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engines.ReadKV([]byte("2"))
-	assert.Nil(t, err)
+	val, err = newps.engine.ReadData([]byte("2"))
+	assert.NoError(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engines.ReadKV([]byte("3"))
-	assert.Nil(t, err)
+	val, err = newps.engine.ReadData([]byte("3"))
+	assert.NoError(t, err)
 	fmt.Println(string(val))
 
-	val, err = newPs.engines.ReadKV([]byte("4"))
-	assert.Nil(t, err)
+	val, err = newps.engine.ReadData([]byte("4"))
+	assert.NoError(t, err)
 	fmt.Println(string(val))
-	cleanUpData(ps)
-	cleanUpData(newPs)
+	assert.NoError(t, cleanupData(ps))
+	assert.NoError(t, cleanupData(newps))
 }

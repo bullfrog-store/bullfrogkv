@@ -7,7 +7,19 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-func GetRaftLocalState(engines *storage.Engines) (*raftstorepb.RaftLocalState, error) {
+func InitRaftLocalState(engine storage.Engine) (*raftstorepb.RaftLocalState, error) {
+	return GetRaftLocalState(engine)
+}
+
+func InitRaftApplyState(engine storage.Engine) (*raftstorepb.RaftApplyState, error) {
+	return GetRaftApplyState(engine)
+}
+
+func InitConfState(engine storage.Engine) (*raftpb.ConfState, error) {
+	return GetRaftConfState(engine)
+}
+
+func GetRaftLocalState(engines storage.Engine) (*raftstorepb.RaftLocalState, error) {
 	raftState := &raftstorepb.RaftLocalState{
 		HardState: &raftpb.HardState{},
 	}
@@ -24,19 +36,11 @@ func GetRaftLocalState(engines *storage.Engines) (*raftstorepb.RaftLocalState, e
 	return raftState, nil
 }
 
-func InitRaftLocalState(engines *storage.Engines) *raftstorepb.RaftLocalState {
-	raftState, err := GetRaftLocalState(engines)
-	if err != nil {
-		panic(err)
-	}
-	return raftState
-}
-
-func GetRaftApplyState(engines *storage.Engines) (*raftstorepb.RaftApplyState, error) {
+func GetRaftApplyState(engine storage.Engine) (*raftstorepb.RaftApplyState, error) {
 	applyState := &raftstorepb.RaftApplyState{
 		TruncatedState: &raftstorepb.RaftTruncatedState{},
 	}
-	value, err := engines.ReadMeta(RaftApplyStateKey())
+	value, err := engine.ReadMeta(RaftApplyStateKey())
 	if err == storage.ErrNotFound {
 		return applyState, nil
 	}
@@ -49,17 +53,9 @@ func GetRaftApplyState(engines *storage.Engines) (*raftstorepb.RaftApplyState, e
 	return applyState, nil
 }
 
-func InitRaftApplyState(engines *storage.Engines) *raftstorepb.RaftApplyState {
-	applyState, err := GetRaftApplyState(engines)
-	if err != nil {
-		panic(err)
-	}
-	return applyState
-}
-
-func GetRaftConfState(engines *storage.Engines) (*raftpb.ConfState, error) {
+func GetRaftConfState(engine storage.Engine) (*raftpb.ConfState, error) {
 	confState := &raftpb.ConfState{}
-	value, err := engines.ReadMeta(RaftConfStateKey())
+	value, err := engine.ReadMeta(RaftConfStateKey())
 	if err == storage.ErrNotFound {
 		return confState, nil
 	}
@@ -70,12 +66,4 @@ func GetRaftConfState(engines *storage.Engines) (*raftpb.ConfState, error) {
 		return nil, err
 	}
 	return confState, nil
-}
-
-func InitConfState(engines *storage.Engines) *raftpb.ConfState {
-	confState, err := GetRaftConfState(engines)
-	if err != nil {
-		panic(err)
-	}
-	return confState
 }

@@ -15,13 +15,19 @@ type RaftStore struct {
 	pr *peer
 }
 
-func NewRaftStore() *RaftStore {
-	rs := &RaftStore{pr: newPeer()}
-	return rs
+func New() (*RaftStore, error) {
+	var err error
+	rs := &RaftStore{}
+
+	if rs.pr, err = newPeer(); err != nil {
+		return nil, err
+	}
+	return rs, nil
 }
 
 func (rs *RaftStore) Set(key, value []byte) error {
 	cmd := internal.NewPutCmdRequest(key, value)
+	// TODO: wait success message
 	return rs.pr.propose(cmd)
 }
 
@@ -40,5 +46,6 @@ func (rs *RaftStore) Get(key []byte) ([]byte, error) {
 
 func (rs *RaftStore) Delete(key []byte) error {
 	cmd := internal.NewDeleteCmdRequest(key)
+	// TODO: wait success message
 	return rs.pr.propose(cmd)
 }

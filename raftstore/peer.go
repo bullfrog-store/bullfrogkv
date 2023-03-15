@@ -66,19 +66,22 @@ type peer struct {
 	lastCompactedIdx uint64
 }
 
-func newPeer() *peer {
+func newPeer() (*peer, error) {
+	var err error
 	cfg := config.GlobalConfig
 	loadPeerMap(cfg.RouteConfig.GrpcAddrs)
 
 	bufferSize := cfg.RaftConfig.MaxSizePerMsg * 4
 	pr := &peer{
 		id:                cfg.StoreConfig.StoreId,
-		ps:                newPeerStorage(cfg.StoreConfig.DataPath),
 		waitReadChannel:   make(chan *reader, bufferSize),
 		readStateTable:    make(map[string]raft.ReadState),
 		readStateComing:   make(chan struct{}, 1),
 		raftMsgReceiver:   make(chan raftpb.Message, bufferSize),
 		compactionTimeout: cfg.RaftConfig.CompactCheckPeriod,
+	}
+	if pr.ps, err = newPeerStorage(cfg.StoreConfig.DataPath); err != nil {
+		return nil, err
 	}
 	pr.router = newRouter(peerMap[pr.id], pr.raftMsgReceiver)
 	pr.lastCompactedIdx = pr.ps.truncateIndex()
@@ -88,7 +91,7 @@ func newPeer() *peer {
 		ElectionTick:    cfg.RaftConfig.ElectionTick,
 		HeartbeatTick:   cfg.RaftConfig.HeartbeatTick,
 		Storage:         pr.ps,
-		Applied:         pr.ps.AppliedIndex(),
+		Applied:         pr.ps.appliedIndex(),
 		MaxSizePerMsg:   cfg.RaftConfig.MaxSizePerMsg,
 		MaxInflightMsgs: cfg.RaftConfig.MaxInflightMsgs,
 		PreVote:         true,
@@ -96,14 +99,14 @@ func newPeer() *peer {
 	if pr.isInitial() {
 		pr.raftGroup = raft.StartNode(c, raftPeers())
 		pr.ps.confState = pr.confState()
-		pr.ps.raftConfStateWriteToDB(pr.ps.confState)
+		pr.ps.writeRaftConfState(pr.ps.confState)
 	} else {
 		pr.raftGroup = raft.RestartNode(c)
 	}
 	logger.Infof("etcd raft is started, node: %d", pr.id)
 
 	pr.run()
-	return pr
+	return pr, nil
 }
 
 func (pr *peer) propose(cmd *raftstorepb.RaftCmdRequest) error {
@@ -191,7 +194,7 @@ func (pr *peer) onLogGCTask() {
 	if !pr.isLeader() {
 		return
 	}
-	appliedIdx := pr.ps.AppliedIndex()
+	appliedIdx := pr.ps.appliedIndex()
 	firstIdx, _ := pr.ps.FirstIndex()
 	var compactIdx uint64
 	if appliedIdx > firstIdx && appliedIdx-firstIdx >= config.GlobalConfig.RaftConfig.LogGCCountLimit {
@@ -228,7 +231,7 @@ func (pr *peer) handleReady(rd raft.Ready) {
 
 func (pr *peer) process(ent raftpb.Entry) {
 	pr.ps.applyState.ApplyIndex = ent.Index
-	pr.ps.raftApplyStateWriteToDB(pr.ps.applyState)
+	pr.ps.writeRaftApplyState(pr.ps.applyState)
 	cmd := &raftstorepb.RaftCmdRequest{}
 	if err := proto.Unmarshal(ent.Data, cmd); err != nil {
 		panic(err)
@@ -247,11 +250,11 @@ func (pr *peer) processRequest(request *raftstorepb.Request) {
 	case raftstorepb.CmdType_Put:
 		logger.Debugf("apply CmdType_Put request: %+v", request.Put)
 		modify := storage.PutData(request.Put.Key, request.Put.Value, true)
-		pr.ps.engines.WriteKV(modify)
+		pr.ps.engine.WriteData(modify)
 	case raftstorepb.CmdType_Delete:
 		logger.Debugf("apply CmdType_Delete request: %+v", request.Delete)
 		modify := storage.DeleteData(request.Delete.Key, true)
-		pr.ps.engines.WriteKV(modify)
+		pr.ps.engine.WriteData(modify)
 	}
 }
 
@@ -263,7 +266,7 @@ func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
 		if compactLog.CompactIndex >= applySt.TruncatedState.Index {
 			applySt.TruncatedState.Index = compactLog.CompactIndex
 			applySt.TruncatedState.Term = compactLog.CompactTerm
-			pr.ps.raftApplyStateWriteToDB(applySt)
+			pr.ps.writeRaftApplyState(applySt)
 			go pr.gcRaftLog(pr.lastCompactedIdx+1, applySt.TruncatedState.Index+1)
 			pr.lastCompactedIdx = applySt.TruncatedState.Index
 		}
@@ -319,7 +322,7 @@ func (pr *peer) handleReadState() {
 
 func (pr *peer) readApplied(state raft.ReadState, reader *reader) {
 	pr.waitAppliedAdvance(state.Index)
-	value, err := pr.ps.engines.ReadKV(reader.key())
+	value, err := pr.ps.engine.ReadData(reader.key())
 	if err != nil {
 		if err != storage.ErrNotFound {
 			panic(err)
@@ -331,7 +334,7 @@ func (pr *peer) readApplied(state raft.ReadState, reader *reader) {
 }
 
 func (pr *peer) waitAppliedAdvance(index uint64) {
-	applied := pr.ps.AppliedIndex()
+	applied := pr.ps.appliedIndex()
 	if applied >= index {
 		return
 	}
@@ -339,7 +342,7 @@ func (pr *peer) waitAppliedAdvance(index uint64) {
 	go func() {
 		for applied < index {
 			time.Sleep(time.Millisecond)
-			applied = pr.ps.AppliedIndex()
+			applied = pr.ps.appliedIndex()
 		}
 		doneCh <- struct{}{}
 	}()

@@ -1,0 +1,13 @@
+[common]
+log_level = "debug"
+node_count = 1
+
+[route]
+serve_addr = "127.0.0.1:8080"
+grpc_addrs = ["127.0.0.1:6060"]
+
+[store]
+store_id = 1
+data_path = "/tmp/bullfrog/node"
+
+[raft]

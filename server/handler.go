@@ -6,75 +6,69 @@ import (
 	"net/http"
 )
 
-type putReq struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
+const (
+	msgSetSuccess    = "set success"
+	msgSetFailure    = "set failure"
+	msgGetSuccess    = "get success"
+	msgGetFailure    = "get failure"
+	msgDeleteSuccess = "delete success"
+	msgDeleteFailure = "delete failure"
+)
 
-type deleteReq struct {
-	Key string `json:"key"`
-}
+func (srv *BullfrogServer) handlerSet(c *gin.Context) {
+	key, value := c.Query("key"), c.Query("value")
 
-func (e *RaftEngine) putKVHandle(c *gin.Context) {
-	var data putReq
-	err := c.ShouldBindJSON(&data)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, nil)
-		return
-	}
-	key := byteForm(data.Key)
-	val := byteForm(data.Value)
-	err = e.engine.Set(key, val)
-	if err != nil {
+	if err := srv.engine.Set(toBytes(key), toBytes(value)); err != nil {
+		logger.Warnf("set error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": writeFail,
+			"error":   err.Error(),
+			"message": msgSetFailure,
 		})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": writeSuccess,
+		"message": msgSetSuccess,
 	})
 }
 
-func (e *RaftEngine) getKVHandle(c *gin.Context) {
+func (srv *BullfrogServer) handlerGet(c *gin.Context) {
 	key := c.Query("key")
-	val, err := e.engine.Get(byteForm(key))
+
+	value, err := srv.engine.Get(toBytes(key))
 	if err != nil {
-		logger.Warnf("get error:", err)
+		logger.Warnf("get error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": err.Error(),
+			"error":   err.Error(),
+			"message": msgGetFailure,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": getSuccess,
+		"message": msgGetSuccess,
 		"key":     key,
-		"data":    string(val),
+		"value":   string(value),
 	})
 }
 
-func (e *RaftEngine) delKVHandle(c *gin.Context) {
-	var data deleteReq
-	err := c.ShouldBindJSON(&data)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, nil)
-		return
-	}
-	key := byteForm(data.Key)
-	err = e.engine.Delete(key)
-	if err != nil {
-		logger.Warnf("del error:", err)
+func (srv *BullfrogServer) handlerDelete(c *gin.Context) {
+	key := c.Query("key")
+
+	if err := srv.engine.Delete(toBytes(key)); err != nil {
+		logger.Warnf("delete error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": deleteFail,
+			"error":   err.Error(),
+			"message": msgDeleteFailure,
 		})
 		return
 	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": deleteSuccess,
+		"message": msgDeleteSuccess,
 	})
 }
 
-func byteForm(data string) []byte {
+func toBytes(data string) []byte {
 	return []byte(data)
 }
