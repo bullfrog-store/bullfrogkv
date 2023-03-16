@@ -22,8 +22,8 @@ import (
 var peerMap = map[uint64]string{}
 
 func loadPeerMap(addrs []string) {
-	for peer, addr := range addrs {
-		peerMap[uint64(peer+1)] = addr
+	for pr, addr := range addrs {
+		peerMap[uint64(pr+1)] = addr
 	}
 }
 
@@ -95,15 +95,18 @@ func newPeer() (*peer, error) {
 		MaxSizePerMsg:   cfg.RaftConfig.MaxSizePerMsg,
 		MaxInflightMsgs: cfg.RaftConfig.MaxInflightMsgs,
 		PreVote:         true,
+		Logger:          logger.GlobalLogger(),
 	}
 	if pr.isInitial() {
 		pr.raftGroup = raft.StartNode(c, raftPeers())
 		pr.ps.confState = pr.confState()
-		pr.ps.writeRaftConfState(pr.ps.confState)
+		if err = pr.ps.writeRaftConfState(pr.ps.confState); err != nil {
+			return nil, err
+		}
 	} else {
 		pr.raftGroup = raft.RestartNode(c)
 	}
-	logger.Infof("etcd raft is started, node: %d", pr.id)
+	logger.Infof("etcd raft is running, node: %d", pr.id)
 
 	pr.run()
 	return pr, nil
@@ -127,9 +130,10 @@ func (pr *peer) run() {
 func (pr *peer) serveGrpc(id uint64) {
 	lis, err := net.Listen("tcp", peerMap[id])
 	if err != nil {
-		panic(err)
+		logger.Fatalf("grpc connect failed, error: %s", err)
 	}
-	logger.Infof("%d listen %v success\n", id, peerMap[id])
+
+	logger.Infof("peer-%d listen at %v successfully", id, peerMap[id])
 	g := grpc.NewServer(
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             5 * time.Second,
@@ -142,17 +146,23 @@ func (pr *peer) serveGrpc(id uint64) {
 		}),
 	)
 	raftstorepb.RegisterMessageServer(g, pr.router.raftServer)
-	g.Serve(lis)
+	if err = g.Serve(lis); err != nil {
+		logger.Fatalf("grpc serve failed, error: %s", err)
+	}
 }
 
 func (pr *peer) onTick() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	for {
+		var err error
 		select {
 		case <-ticker.C:
-			pr.tick()
+			err = pr.tick()
 		case rd := <-pr.raftGroup.Ready():
-			pr.handleReady(rd)
+			err = pr.handleReady(rd)
+		}
+		if err != nil {
+			logger.Errorf("tick error: %s", err.Error())
 		}
 	}
 }
@@ -170,29 +180,33 @@ func (pr *peer) handleRaftMsgs() {
 		}
 		for _, msg := range msgs {
 			if msg.To == pr.id {
-				pr.raftGroup.Step(context.TODO(), msg)
+				if err := pr.raftGroup.Step(context.TODO(), msg); err != nil {
+					logger.Errorf("get error when RaftGroup step message, error: %s", err.Error())
+				}
 			}
 		}
 	}
 }
 
-func (pr *peer) tick() {
+func (pr *peer) tick() error {
 	pr.raftGroup.Tick()
-	pr.tickLogGC()
+	return pr.tickLogGC()
 }
 
-func (pr *peer) tickLogGC() {
+func (pr *peer) tickLogGC() error {
+	var err error
 	pr.compactionElapse++
 	if pr.compactionElapse >= pr.compactionTimeout {
 		pr.compactionElapse = 0
-		// try to compact log
-		pr.onLogGCTask()
+		// Try to compact log.
+		err = pr.onLogGCTask()
 	}
+	return err
 }
 
-func (pr *peer) onLogGCTask() {
+func (pr *peer) onLogGCTask() error {
 	if !pr.isLeader() {
-		return
+		return nil
 	}
 	appliedIdx := pr.ps.appliedIndex()
 	firstIdx, _ := pr.ps.FirstIndex()
@@ -200,22 +214,25 @@ func (pr *peer) onLogGCTask() {
 	if appliedIdx > firstIdx && appliedIdx-firstIdx >= config.GlobalConfig.RaftConfig.LogGCCountLimit {
 		compactIdx = appliedIdx
 	} else {
-		return
+		return nil
 	}
 
-	// improve the success rate of log compaction
+	// Improve the success rate of log compaction.
 	compactIdx--
 	term, err := pr.ps.Term(compactIdx)
 	if err != nil {
-		logger.Fatalf("appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
-		panic(err)
+		logger.Errorf("compaction error: appliedIdx: %d, firstIdx: %d, compactIdx: %d", appliedIdx, firstIdx, compactIdx)
+		return err
 	}
 
-	pr.propose(internal.NewCompactCmdRequest(compactIdx, term))
+	return pr.propose(internal.NewCompactCmdRequest(compactIdx, term))
 }
 
-func (pr *peer) handleReady(rd raft.Ready) {
-	pr.ps.saveReadyState(rd)
+func (pr *peer) handleReady(rd raft.Ready) error {
+	var err error
+	if err = pr.ps.saveReadyState(rd); err != nil {
+		return err
+	}
 	for _, state := range rd.ReadStates {
 		pr.readStateTable[string(state.RequestCtx)] = state
 	}
@@ -224,41 +241,52 @@ func (pr *peer) handleReady(rd raft.Ready) {
 	}
 	pr.router.sendRaftMessage(rd.Messages)
 	for _, ent := range rd.CommittedEntries {
-		pr.process(ent)
+		if err = pr.process(ent); err != nil {
+			return err
+		}
 	}
 	pr.raftGroup.Advance()
+
+	return nil
 }
 
-func (pr *peer) process(ent raftpb.Entry) {
+func (pr *peer) process(ent raftpb.Entry) error {
+	var err error
 	pr.ps.applyState.ApplyIndex = ent.Index
-	pr.ps.writeRaftApplyState(pr.ps.applyState)
+	if err = pr.ps.writeRaftApplyState(pr.ps.applyState); err != nil {
+		return err
+	}
 	cmd := &raftstorepb.RaftCmdRequest{}
-	if err := proto.Unmarshal(ent.Data, cmd); err != nil {
-		panic(err)
+	if err = proto.Unmarshal(ent.Data, cmd); err != nil {
+		return err
 	}
 	if cmd.Request != nil {
-		// process common request
-		pr.processRequest(cmd.Request)
+		// Process common request.
+		err = pr.processRequest(cmd.Request)
 	} else if cmd.AdminRequest != nil {
-		// process admin request
-		pr.processAdminRequest(cmd.AdminRequest)
+		// Process admin request.
+		err = pr.processAdminRequest(cmd.AdminRequest)
 	}
+	return err
 }
 
-func (pr *peer) processRequest(request *raftstorepb.Request) {
+func (pr *peer) processRequest(request *raftstorepb.Request) error {
 	switch request.CmdType {
 	case raftstorepb.CmdType_Put:
 		logger.Debugf("apply CmdType_Put request: %+v", request.Put)
 		modify := storage.PutData(request.Put.Key, request.Put.Value, true)
-		pr.ps.engine.WriteData(modify)
+		return pr.ps.engine.WriteData(modify)
 	case raftstorepb.CmdType_Delete:
 		logger.Debugf("apply CmdType_Delete request: %+v", request.Delete)
 		modify := storage.DeleteData(request.Delete.Key, true)
-		pr.ps.engine.WriteData(modify)
+		return pr.ps.engine.WriteData(modify)
+	default:
+		// Unreachable branch for now.
+		return nil
 	}
 }
 
-func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
+func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) error {
 	switch request.CmdType {
 	case raftstorepb.AdminCmdType_CompactLog:
 		compactLog := request.GetCompactLog()
@@ -266,22 +294,30 @@ func (pr *peer) processAdminRequest(request *raftstorepb.AdminRequest) {
 		if compactLog.CompactIndex >= applySt.TruncatedState.Index {
 			applySt.TruncatedState.Index = compactLog.CompactIndex
 			applySt.TruncatedState.Term = compactLog.CompactTerm
-			pr.ps.writeRaftApplyState(applySt)
+			if err := pr.ps.writeRaftApplyState(applySt); err != nil {
+				return err
+			}
 			go pr.gcRaftLog(pr.lastCompactedIdx+1, applySt.TruncatedState.Index+1)
 			pr.lastCompactedIdx = applySt.TruncatedState.Index
 		}
+	default:
+		// Unreachable branch for now.
 	}
+	return nil
 }
 
-func (pr *peer) gcRaftLog(start, end uint64) error {
+func (pr *peer) gcRaftLog(start, end uint64) {
 	entries, err := pr.ps.Entries(start, end, math.MaxUint64)
 	if err != nil {
-		return err
+		logger.Errorf("get error when doing raft log GC, error: %s", err.Error())
+		return
 	}
-	return pr.ps.deleteRaftLogEntries(entries)
+	if err = pr.ps.deleteRaftLogEntries(entries); err != nil {
+		logger.Errorf("get error when doing raft log GC, error: %s", err.Error())
+	}
 }
 
-func (pr *peer) linearizableRead(key []byte) *internal.Callback {
+func (pr *peer) linearizableRead(key []byte) (*internal.Callback, error) {
 	ctx := buildReadCtx(key)
 	cb := internal.NewCallback()
 	reader := &reader{
@@ -291,9 +327,9 @@ func (pr *peer) linearizableRead(key []byte) *internal.Callback {
 	logger.Debugf("receive a read request: %+v", reader)
 	pr.waitReadChannel <- reader
 	if err := pr.raftGroup.ReadIndex(context.TODO(), ctx); err != nil {
-		panic(err)
+		return nil, err
 	}
-	return cb
+	return cb, nil
 }
 
 func (pr *peer) handleReadState() {
@@ -323,13 +359,12 @@ func (pr *peer) handleReadState() {
 func (pr *peer) readApplied(state raft.ReadState, reader *reader) {
 	pr.waitAppliedAdvance(state.Index)
 	value, err := pr.ps.engine.ReadData(reader.key())
-	if err != nil {
-		if err != storage.ErrNotFound {
-			panic(err)
-		}
+	if err != nil && err != storage.ErrNotFound {
+		logger.Errorf("get error when reading applied data, error: %s", err.Error())
+		return
 	}
 	resp := internal.NewGetCmdResponse(value)
-	logger.Infof("%s get response successfully: %+v", string(reader.key()), resp.GetResponse())
+	logger.Infof("get response successfully, value: %s, response: %+v", string(reader.key()), resp.GetResponse())
 	reader.cb.Done(resp)
 }
 
@@ -346,7 +381,7 @@ func (pr *peer) waitAppliedAdvance(index uint64) {
 		}
 		doneCh <- struct{}{}
 	}()
-	// wait for applied index >= state.Index
+	// Wait for applied index >= state.Index.
 	<-doneCh
 	close(doneCh)
 }

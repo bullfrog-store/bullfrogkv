@@ -32,7 +32,10 @@ func (rs *RaftStore) Set(key, value []byte) error {
 }
 
 func (rs *RaftStore) Get(key []byte) ([]byte, error) {
-	cb := rs.pr.linearizableRead(key)
+	cb, err := rs.pr.linearizableRead(key)
+	if err != nil {
+		return nil, err
+	}
 	resp := cb.WaitRespWithTimeout(time.Second)
 	if resp == nil {
 		return nil, ErrLostReadResponse

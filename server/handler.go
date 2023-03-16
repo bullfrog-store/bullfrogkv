@@ -19,7 +19,7 @@ func (srv *BullfrogServer) handlerSet(c *gin.Context) {
 	key, value := c.Query("key"), c.Query("value")
 
 	if err := srv.engine.Set(toBytes(key), toBytes(value)); err != nil {
-		logger.Warnf("set error: %s", err.Error())
+		logger.Warningf("set error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   err.Error(),
 			"message": msgSetFailure,
@@ -37,7 +37,7 @@ func (srv *BullfrogServer) handlerGet(c *gin.Context) {
 
 	value, err := srv.engine.Get(toBytes(key))
 	if err != nil {
-		logger.Warnf("get error: %s", err.Error())
+		logger.Warningf("get error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   err.Error(),
 			"message": msgGetFailure,
@@ -56,7 +56,7 @@ func (srv *BullfrogServer) handlerDelete(c *gin.Context) {
 	key := c.Query("key")
 
 	if err := srv.engine.Delete(toBytes(key)); err != nil {
-		logger.Warnf("delete error: %s", err.Error())
+		logger.Warningf("delete error: %s", err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":   err.Error(),
 			"message": msgDeleteFailure,

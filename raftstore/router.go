@@ -27,7 +27,7 @@ func (r *router) sendRaftMessage(msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		addr, ok := peerMap[msg.To]
 		if !ok {
-			logger.Warnf("address of peer %d not found!", msg.To)
+			logger.Warningf("address of peer %d not found!", msg.To)
 			continue
 		}
 		peerMsg := &raftstorepb.RaftMsgReq{

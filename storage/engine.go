@@ -17,8 +17,8 @@ type Engine interface {
 }
 
 const (
-	DataDir = "/data"
-	MetaDir = "/meta"
+	DataAbsDir = "/data"
+	MetaAbsDir = "/meta"
 )
 
 var (
@@ -42,23 +42,19 @@ type PapiEngine struct {
 	// meta stores the metadata of the system.
 	meta *papi
 
-	datapath string
-	metapath string
+	path string
 }
 
 func New(config *Config) (Engine, error) {
 	var err error
 
-	e := &PapiEngine{
-		datapath: config.Path + DataDir,
-		metapath: config.Path + MetaDir,
-	}
+	e := &PapiEngine{path: config.Path}
 
-	e.data, err = newPapi(e.datapath, config.DataOpts)
+	e.data, err = newPapi(e.path+DataAbsDir, config.DataOpts)
 	if err != nil {
 		return nil, err
 	}
-	e.meta, err = newPapi(e.metapath, config.MetaOpts)
+	e.meta, err = newPapi(e.path+MetaAbsDir, config.MetaOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -114,10 +110,7 @@ func (e *PapiEngine) Destroy() error {
 	if err := e.Close(); err != nil {
 		return err
 	}
-	if err := removeAll(e.datapath); err != nil {
-		return err
-	}
-	if err := removeAll(e.metapath); err != nil {
+	if err := removeAll(e.path); err != nil {
 		return err
 	}
 	return nil

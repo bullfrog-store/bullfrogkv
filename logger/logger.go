@@ -22,13 +22,13 @@ const (
 )
 
 const (
-	LogLevelNone  = LogLevel(0x0)
-	LogLevelFatal = LogLevelNone | LogLevel(LogFatal)
-	LogLevelError = LogLevelFatal | LogLevel(LogError)
-	LogLevelWarn  = LogLevelError | LogLevel(LogWarning)
-	LogLevelInfo  = LogLevelWarn | LogLevel(LogInfo)
-	LogLevelDebug = LogLevelInfo | LogLevel(LogDebug)
-	LogLevelAll   = LogLevelDebug
+	LogLevelNone    = LogLevel(0x0)
+	LogLevelFatal   = LogLevelNone | LogLevel(LogFatal)
+	LogLevelError   = LogLevelFatal | LogLevel(LogError)
+	LogLevelWarning = LogLevelError | LogLevel(LogWarning)
+	LogLevelInfo    = LogLevelWarning | LogLevel(LogInfo)
+	LogLevelDebug   = LogLevelInfo | LogLevel(LogDebug)
+	LogLevelAll     = LogLevelDebug
 )
 
 var _log = New()
@@ -52,8 +52,8 @@ func NewLogger(w io.Writer, prefix string) *Logger {
 	return &Logger{_log: log.New(w, prefix, log.LstdFlags), level: level, highlighting: true}
 }
 
-func GlobalLogger() *log.Logger {
-	return _log._log
+func GlobalLogger() *Logger {
+	return _log
 }
 
 func SetLogLevel(level string) {
@@ -63,8 +63,8 @@ func SetLogLevel(level string) {
 		l = LogLevelDebug
 	case "info":
 		l = LogLevelInfo
-	case "warn":
-		l = LogLevelWarn
+	case "warning":
+		l = LogLevelWarning
 	case "error":
 		l = LogLevelError
 	case "fatal":
@@ -108,12 +108,12 @@ func Debugf(format string, v ...interface{}) {
 	_log.Debugf(format, v...)
 }
 
-func Warn(v ...interface{}) {
-	_log.Warn(v...)
+func Warning(v ...interface{}) {
+	_log.Warning(v...)
 }
 
-func Warnf(format string, v ...interface{}) {
-	_log.Warnf(format, v...)
+func Warningf(format string, v ...interface{}) {
+	_log.Warningf(format, v...)
 }
 
 func Error(v ...interface{}) {
@@ -211,11 +211,11 @@ func (l *Logger) Errorf(format string, v ...interface{}) {
 	l.logf(LogError, format, v...)
 }
 
-func (l *Logger) Warn(v ...interface{}) {
+func (l *Logger) Warning(v ...interface{}) {
 	l.log(LogWarning, v...)
 }
 
-func (l *Logger) Warnf(format string, v ...interface{}) {
+func (l *Logger) Warningf(format string, v ...interface{}) {
 	l.logf(LogWarning, format, v...)
 }
 
@@ -241,10 +241,8 @@ func StringToLogLevel(level string) LogLevel {
 		return LogLevelFatal
 	case "error":
 		return LogLevelError
-	case "warn":
-		return LogLevelWarn
 	case "warning":
-		return LogLevelWarn
+		return LogLevelWarning
 	case "debug":
 		return LogLevelDebug
 	case "info":

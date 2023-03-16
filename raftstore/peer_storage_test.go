@@ -390,10 +390,6 @@ func TestApplySnap(t *testing.T) {
 			break
 		}
 	}
-	//ss := storage.Decode(snapshot.Data)
-	//for _, s := range ss {
-	//	fmt.Println(string(s.Key), ":", string(s.Val))
-	//}
 
 	newps, err := newTestPeerStorageWithPath("../testdata2")
 	assert.NoError(t, err)
