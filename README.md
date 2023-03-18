@@ -5,7 +5,11 @@ A distributed KV based on etcd-raft and pebble.
 ### Compilation
 It's extremely easy to compile BullfrogKV, just input the following command in the **project home directory**:
 ```shell
-go build main.go
+make bullfrog
+```
+Or simpler:
+```shell
+make
 ```
 And then you will get a binary file called `main`.
 
@@ -30,14 +34,14 @@ The more configuration entries can you see in the `${BULLFROG_HOME}/config/confi
 ### Start Project
 The most easy way for you to start the BullfrogKV is that can start 3 nodes by 3 configuration files `node1.toml/node2.toml/node3.toml` under the `${BULLFROG_HOME}/nodes`. You just need to open 3 terminals and go to the **project home directory**. Finally, input the following commands:
 ```shell
-# in terminal 1
-./main -conf=./nodes/node1.toml
+# In terminal 1
+make node1
 
-# in terminal 2
-./main -conf=./nodes/node2.toml
+# In terminal 2
+make node2
 
-# in terminal 3
-./main -conf=./nodes/node2.toml
+# In terminal 3
+make node3
 ```
 You will clearly see 3 servers are up.
 

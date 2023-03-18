@@ -28,11 +28,11 @@ func errorfRuntimeError(err error) {
 func main() {
 	// Start command:
 	//     1. cd ${BULLFROG_HOME}
-	//     2. go build main.go
+	//     2. make/make bullfrog
 	//     3.
-	//       ./main -conf=./nodes/node1.toml
-	//       ./main -conf=./nodes/node2.toml
-	//       ./main -conf=./nodes/node3.toml
+	//       In terminal 1: make node1
+	//       In terminal 2: make node2
+	//       In terminal 3: make node3
 
 	var err error
 	homepath, ok := os.LookupEnv(envKeyBullfrogHome)
