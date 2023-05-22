@@ -4,6 +4,8 @@ import (
 	"bullfrogkv/logger"
 	"errors"
 	"github.com/BurntSushi/toml"
+	"os"
+	"strings"
 )
 
 var GlobalConfig *Config
@@ -11,10 +13,12 @@ var GlobalConfig *Config
 // Default values for config
 const (
 	// Common config
-	defaultLogLevel = "info"
+	defaultServeType = "http"
+	defaultLogLevel  = "info"
+	defaultLogFile   = "bullfrog.log"
 
 	// Store config
-	defaultDataPath = "/tmp/bullfrog"
+	defaultDataPathPrefix = "./bullfrog/"
 
 	// Raft config
 	defaultElectionTick       = 10
@@ -34,7 +38,10 @@ type Config struct {
 }
 
 type CommonConfig struct {
+	ServeType string `toml:"serve_type"` // MUST be filled
 	LogLevel  string `toml:"log_level"`
+	LogFile   string `toml:"log_file"`
+	NodeName  string `toml:"node_name"`
 	NodeCount int    `toml:"node_count"` // MUST be filled
 }
 
@@ -66,12 +73,31 @@ func LoadConfigFile(path string) error {
 	if err := ensureDefault(GlobalConfig); err != nil {
 		return err
 	}
+
+	// For logger
+	nodepath := GlobalConfig.StoreConfig.DataPath
+	if err := os.MkdirAll(nodepath, 0775); err != nil {
+		return err
+	}
+	logfile, err := os.Create(nodepath + "/" + GlobalConfig.CommonConfig.LogFile)
+	if err != nil {
+		return err
+	}
+	logger.ResetGlobalLogger(logger.NewWithFile(logfile))
 	logger.SetLogLevel(GlobalConfig.CommonConfig.LogLevel)
 	return nil
 }
 
 func validate(c *Config) error {
 	// Common config
+	if len(c.CommonConfig.ServeType) != 0 {
+		srvtyp := strings.ToLower(strings.Trim(c.CommonConfig.ServeType, " "))
+		if srvtyp != "terminal" && srvtyp != "http" {
+			return errors.New("ServeType must be terminal or http")
+		} else {
+			c.CommonConfig.ServeType = srvtyp
+		}
+	}
 	if c.CommonConfig.NodeCount <= 0 {
 		return errors.New("NodeCount cannot equal or less than 0")
 	}
@@ -103,13 +129,23 @@ func ensureDefault(c *Config) error {
 	}
 
 	// Common config
+	if len(c.CommonConfig.ServeType) == 0 {
+		c.CommonConfig.ServeType = defaultServeType
+	}
 	if len(c.CommonConfig.LogLevel) == 0 {
 		c.CommonConfig.LogLevel = defaultLogLevel
+	}
+	if len(c.CommonConfig.LogFile) == 0 {
+		c.CommonConfig.LogFile = defaultLogFile
+	}
+	if len(c.CommonConfig.NodeName) == 0 {
+		port := strings.Split(c.RouteConfig.ServeAddr, ":")[1]
+		c.CommonConfig.NodeName = port
 	}
 
 	// Store config
 	if len(c.StoreConfig.DataPath) == 0 {
-		c.StoreConfig.DataPath = defaultDataPath
+		c.StoreConfig.DataPath = defaultDataPathPrefix + c.CommonConfig.NodeName
 	}
 
 	// Raft config

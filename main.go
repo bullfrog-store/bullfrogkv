@@ -18,11 +18,11 @@ const (
 )
 
 func fatalfInitError(err error) {
-	logger.Fatalf("Encounter an unexpected error in the initialization stage, err: %s", err.Error())
+	logger.Fatalf("Encounter an unexpected fatal in the initialization stage, fatal: %s", err.Error())
 }
 
 func errorfRuntimeError(err error) {
-	logger.Errorf("Encounter an unexpected error in the runtime stage, err: %s", err.Error())
+	logger.Errorf("Encounter an unexpected error in the runtime stage, error: %s", err.Error())
 }
 
 func main() {
@@ -57,8 +57,13 @@ func main() {
 		fatalfInitError(err)
 	}
 
-	ginsrv := server.Router(srv)
-	if err = ginsrv.Run(config.GlobalConfig.RouteConfig.ServeAddr); err != nil {
-		errorfRuntimeError(err)
+	srvtyp := config.GlobalConfig.CommonConfig.ServeType
+	switch srvtyp {
+	case "http":
+		if err = server.Router(srv).Run(config.GlobalConfig.RouteConfig.ServeAddr); err != nil {
+			errorfRuntimeError(err)
+		}
+	case "terminal":
+		server.Terminal(srv).ScanAndProcessCommand()
 	}
 }

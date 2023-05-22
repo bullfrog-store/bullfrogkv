@@ -2,14 +2,15 @@ package server
 
 import (
 	"bullfrogkv/raftstore"
-	"github.com/gin-gonic/gin"
 )
 
-// Bullfrog request paths
 const (
-	pathSet    = "/set"
-	pathGet    = "/get"
-	pathDelete = "/delete"
+	msgSetSuccess    = "set success"
+	msgSetFailure    = "set failure"
+	msgGetSuccess    = "get success"
+	msgGetFailure    = "get failure"
+	msgDeleteSuccess = "delete success"
+	msgDeleteFailure = "delete failure"
 )
 
 type BullfrogServer struct {
@@ -26,10 +27,6 @@ func New() (*BullfrogServer, error) {
 	return srv, nil
 }
 
-func Router(srv *BullfrogServer) *gin.Engine {
-	ginsrv := gin.New()
-	ginsrv.GET(pathSet, srv.handlerSet)
-	ginsrv.GET(pathGet, srv.handlerGet)
-	ginsrv.GET(pathDelete, srv.handlerDelete)
-	return ginsrv
+func toBytes(data string) []byte {
+	return []byte(data)
 }

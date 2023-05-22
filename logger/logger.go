@@ -42,6 +42,10 @@ func New() *Logger {
 	return NewLogger(os.Stderr, "")
 }
 
+func NewWithFile(w io.Writer) *Logger {
+	return NewLogger(w, "")
+}
+
 func NewLogger(w io.Writer, prefix string) *Logger {
 	var level LogLevel
 	if l := os.Getenv("LOG_LEVEL"); len(l) != 0 {
@@ -54,6 +58,10 @@ func NewLogger(w io.Writer, prefix string) *Logger {
 
 func GlobalLogger() *Logger {
 	return _log
+}
+
+func ResetGlobalLogger(l *Logger) {
+	_log = l
 }
 
 func SetLogLevel(level string) {

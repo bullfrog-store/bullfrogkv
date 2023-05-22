@@ -1,4 +1,5 @@
 [common]
+serve_type = "terminal"
 log_level = "info"
 node_count = 3
 
@@ -8,6 +9,5 @@ grpc_addrs = ["127.0.0.1:6060", "127.0.0.1:6061", "127.0.0.1:6062"]
 
 [store]
 store_id = 3
-data_path = "/tmp/bullfrog/node3"
 
 [raft]

@@ -6,14 +6,20 @@ import (
 	"net/http"
 )
 
+// Bullfrog request paths
 const (
-	msgSetSuccess    = "set success"
-	msgSetFailure    = "set failure"
-	msgGetSuccess    = "get success"
-	msgGetFailure    = "get failure"
-	msgDeleteSuccess = "delete success"
-	msgDeleteFailure = "delete failure"
+	pathSet    = "/set"
+	pathGet    = "/get"
+	pathDelete = "/delete"
 )
+
+func Router(srv *BullfrogServer) *gin.Engine {
+	ginsrv := gin.New()
+	ginsrv.GET(pathSet, srv.handlerSet)
+	ginsrv.GET(pathGet, srv.handlerGet)
+	ginsrv.GET(pathDelete, srv.handlerDelete)
+	return ginsrv
+}
 
 func (srv *BullfrogServer) handlerSet(c *gin.Context) {
 	key, value := c.Query("key"), c.Query("value")
@@ -67,8 +73,4 @@ func (srv *BullfrogServer) handlerDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": msgDeleteSuccess,
 	})
-}
-
-func toBytes(data string) []byte {
-	return []byte(data)
 }
